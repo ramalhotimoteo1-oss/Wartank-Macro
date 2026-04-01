@@ -1,25 +1,38 @@
 #!/bin/bash
 # ============================================================
-# run.sh — Scheduler principal
-# Horários baseados no HTML real do wartank-pt.net
+# run.sh — Scheduler principal (detecção dinâmica)
 # ============================================================
-# Batalhas PvE a cada 2h (horário PT):
-#   06:57, 08:57, 10:57, 12:57, 14:57, 16:57, 18:57, 21:57
-# Bot aplica 5 min antes: 06:52, 08:52, etc.
+# IMPORTANTE: Não usa horários fixos para CW/DM/PvE/PvP.
+# O fuso de Portugal tem horário de verão (DST) que muda
+# os horários em 1h. Em vez de fixar horas, o bot verifica
+# dinamicamente se há batalha disponível a cada ciclo.
+#
+# Lógica:
+#   - A cada iteração do loop principal (wartank_play)
+#     verificamos se há batalha disponível nas páginas
+#   - Se sim → entra imediatamente
+#   - Se não → executa rotina de manutenção + idle
+#
+# Janelas de verificação conhecidas (aproximadas, PT):
+#   PvE:  ~06:57, 08:57, 10:57, 12:57, 14:57, 16:57, 18:57, 21:57
+#   DM:   ~11:20, 15:20, 21:20
+#   CW:   ~18:20 ou 19:20 (Alemanha; outros territórios variam)
+#   PvP:  qualquer hora (fila disponível 24h)
 # ============================================================
 
+# ── Idle inteligente ─────────────────────────────────────────
 func_sleep() {
-  local h m
+  local h m min
   printf -v h '%(%H)T' -1
   printf -v m '%(%M)T' -1
-  HOUR=$((10#$h))
-  MIN=$((10#$m))
+  min=$((10#$m))
 
-  # Próximo evento em menos de 3 min — espera pouco
-  if [ "$MIN" -ge 52 ] && [ "$MIN" -le 56 ]; then
-    _idle_wait 15
-  elif [ "$MIN" -ge 57 ] && [ "$MIN" -le 59 ]; then
-    _idle_wait 10
+  # Nos minutos 50-59 → ciclos curtos (batalhas aproximam-se)
+  if [ "$min" -ge 50 ]; then
+    _idle_wait 20
+  # Nos minutos 15-25 → verificação para DM
+  elif [ "$min" -ge 15 ] && [ "$min" -le 25 ]; then
+    _idle_wait 20
   else
     _idle_wait 60
   fi
@@ -33,7 +46,7 @@ _idle_wait() {
 
   echo_t "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" "$GRAY_BLACK" "$COLOR_RESET"
   echo_t "🕐 ${h}:${m}  |  👤 ${ACC:-?}  |  ⛽ ${FUEL_CURRENT:-?}" "$GRAY_BLACK" "$COLOR_RESET"
-  echo_t "⏳ Próxima acção em ~${wait_sec}s" "$GRAY_BLACK" "$COLOR_RESET"
+  echo_t "⏳ Próxima verificação em ~${wait_sec}s" "$GRAY_BLACK" "$COLOR_RESET"
   echo_t "[stop] parar  [config] configurar  [status] estado" "$GRAY_BLACK" "$COLOR_RESET"
   echo_t "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" "$GRAY_BLACK" "$COLOR_RESET"
 
@@ -52,72 +65,107 @@ _idle_wait() {
   done
 }
 
-# ── Sequência de acções principal ───────────────────────────
-start() {
-  load_config
-  collect_all_rewards
-  buildings_func
-  convoy_mode
-  company_func
-  assault_mode
+# ── Detecção dinâmica de batalhas ────────────────────────────
+# Verifica se há batalha disponível AGORA em cada modo.
+# Retorna 0 se entrou numa batalha, 1 se não havia nada.
+_check_battles_available() {
+  local found=1
 
-  if [ "$FUNC_battle" = "y" ]; then
-    adiante_a_combate
+  # ── CW — verifica se há link de entrada ───────────────────
+  if [ "$FUNC_cw" = "y" ]; then
+    fetch_page "/cw"
+    if _session_active && \
+       grep -q 'currentControl-buttons-attackRegularShellLink\|currentOverview-apply' \
+       "$SRC" 2>/dev/null; then
+      echo_t "🗺️ Guerra disponível!" "$GOLD_BLACK" "$COLOR_RESET"
+      cw_check_and_apply
+      found=0
+    fi
   fi
 
+  # ── DM — verifica se há link de aplicar ───────────────────
+  if [ "$FUNC_dm" = "y" ]; then
+    fetch_page "/dm"
+    if _session_active && \
+       grep -q 'currentControl-buttons-attackRegularShellLink\|currentOverview-apply' \
+       "$SRC" 2>/dev/null; then
+      echo_t "💥 Disputa disponível!" "$GOLD_BLACK" "$COLOR_RESET"
+      dm_check_and_apply
+      found=0
+    fi
+  fi
+
+  # ── PvE — verifica se há link de aplicar ──────────────────
+  if [ "$FUNC_pve" = "y" ]; then
+    fetch_page "/pve"
+    if _session_active && \
+       grep -q 'currentOverview-apply' "$SRC" 2>/dev/null; then
+      echo_t "🎖️ PvE disponível!" "$GOLD_BLACK" "$COLOR_RESET"
+      pve_check_and_apply
+      found=0
+    fi
+  fi
+
+  return $found
+}
+
+# ── Rotina de manutenção (entre batalhas) ────────────────────
+_maintenance() {
+  load_config
+
+  # Recolhe missões
+  collect_all_rewards
+
+  # Base — recolhe produção
+  if [ "$FUNC_buildings" = "y" ]; then
+    buildings_func
+  fi
+
+  # Escolta
+  if [ "$FUNC_convoy" = "y" ]; then
+    convoy_mode
+  fi
+
+  # Divisão + missão especial
+  if [ "$FUNC_company" = "y" ]; then
+    company_func
+  fi
+  if [ "$FUNC_assault" = "y" ]; then
+    assault_mode
+  fi
+
+  # Batalha normal (combustível)
+  if [ "$FUNC_battle" = "y" ]; then
+    if check_fuel; then
+      adiante_a_combate
+    fi
+  fi
+}
+
+# ── Loop principal ───────────────────────────────────────────
+start() {
+  _maintenance
   go_hangar
   func_sleep
 }
 
-# ── Scheduler por horário ────────────────────────────────────
 wartank_play() {
-  local h m hm
-  printf -v h '%(%H)T' -1
-  printf -v m '%(%M)T' -1
-  hm="${h}:${m}"
+  # 1. Verifica sessão
+  require_login || return
 
-  case "$hm" in
+  # 2. Verifica dinamicamente se há batalhas disponíveis
+  _check_battles_available
 
-    # ── PvE — aplica 5 min antes de cada batalha ────────────
-    # Batalhas reais: 06:57, 08:57, 10:57, 12:57, 14:57, 16:57, 18:57, 21:57
-    06:5[2-6]|08:5[2-6]|10:5[2-6]|12:5[2-6]|\
-    14:5[2-6]|16:5[2-6]|18:5[2-6]|21:5[2-6])
-      if [ "$FUNC_pve" = "y" ]; then
-        pve_check_and_apply
-      fi
-      start
-      ;;
+  # 3. PvP — verifica separadamente (tem fila própria)
+  if [ "$FUNC_pvp" = "y" ]; then
+    fetch_page "/pvp"
+    if _session_active && grep -q 'ILinkListener-joinLink' "$SRC" 2>/dev/null; then
+      echo_t "🏆 PvP disponível!" "$GOLD_BLACK" "$COLOR_RESET"
+      pvp_mode
+      return
+    fi
+  fi
 
-    # ── DM — aplica antes das disputas
-    # Horários reais: 11:20, 15:20, 21:20
-    11:1[5-9]|15:1[5-9]|21:1[5-9])
-      dm_check_and_apply
-      start
-      ;;
-
-    # ── PvP — madrugada e períodos calmos ───────────────────
-    00:[0-5][05]|01:[0-5][05]|02:[0-5][05]|03:[0-5][05]|\
-    04:[0-5][05]|05:[0-5][05])
-      if [ "$FUNC_pvp" = "y" ]; then
-        pvp_mode
-      fi
-      start
-      ;;
-
-    # ── Rotina completa — durante o dia ─────────────────────
-    07:00|07:30|08:00|08:30|09:00|09:30|\
-    10:00|10:30|11:00|11:30|12:00|12:30|\
-    13:00|13:30|14:00|14:30|15:00|15:30|\
-    16:00|16:30|17:00|17:30|18:00|18:30|\
-    19:00|19:30|20:00|20:30|21:00|21:30|\
-    22:00|22:30|23:00|23:30)
-      start
-      ;;
-
-    # ── Default — idle ───────────────────────────────────────
-    *)
-      go_hangar
-      func_sleep
-      ;;
-  esac
+  # 4. Rotina de manutenção + idle
+  start
 }
