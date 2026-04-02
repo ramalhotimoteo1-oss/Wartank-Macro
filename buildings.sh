@@ -25,18 +25,18 @@
 buildings_func() {
   if [ "$FUNC_buildings" = "n" ]; then return; fi
 
-  echo_t "Base (Edifícios)" "$GOLD_BLACK" "$COLOR_RESET" "after" "🏭"
+  echo_t "Base (Edifícios)" "$GOLD_BLACK" "$COLOR_RESET"
 
   fetch_page "/buildings"
 
   if ! _session_active; then
-    echo_t "Sessão inválida na Base." "$BLACK_RED" "$COLOR_RESET" "after" "❌"
+    echo_t "Sessão inválida na Base." "$BLACK_RED" "$COLOR_RESET"
     go_hangar
     return
   fi
 
   if ! grep -q '<title>Base</title>' "$TMP/SRC" 2>/dev/null; then
-    echo_t "Página de Base não encontrada." "$BLACK_YELLOW" "$COLOR_RESET" "after" "⚠️"
+    echo_t "Página de Base não encontrada." "$BLACK_YELLOW" "$COLOR_RESET"
     go_hangar
     return
   fi
@@ -47,7 +47,7 @@ buildings_func() {
   # Recolhe produção de todos os edifícios disponíveis
   _buildings_collect_all
 
-  echo_t "Base concluída." "$GREEN_BLACK" "$COLOR_RESET" "after" "✅"
+  echo_t "Base concluída." "$GREEN_BLACK" "$COLOR_RESET"
   go_hangar
 }
 
@@ -59,7 +59,7 @@ _buildings_show_resources() {
   steel=$(grep -o -E 'alt="Aço"[^0-9]*[0-9]+' "$TMP/SRC" | grep -o -E '[0-9]+' | head -n1)
   lead=$(grep -o -E 'alt="Chumbo"[^0-9]*[0-9]+' "$TMP/SRC" | grep -o -E '[0-9]+' | head -n1)
 
-  echo_t "  ⛏️ Minério: ${ore:-?}  🔩 Ferro: ${iron:-?}  🔧 Aço: ${steel:-?}  🔫 Chumbo: ${lead:-?}" \
+  echo_t "  ⛏️ Minério: ${ore:-?}  🔩 Ferro: ${iron:-?}   Aço: ${steel:-?}  🔫 Chumbo: ${lead:-?}" \
     "$GRAY_BLACK" "$COLOR_RESET"
 }
 
@@ -92,14 +92,14 @@ _buildings_collect_all() {
       *) building_name="Edifício ${idx}" ;;
     esac
 
-    echo_t "  📦 A recolher: ${building_name}..." "$GREEN_BLACK" "$COLOR_RESET"
+    echo_t "   A recolher: ${building_name}..." "$GREEN_BLACK" "$COLOR_RESET"
     fetch_page "/${link}"
     collected=$(( collected + 1 ))
     sleep 0.5s
   done <<< "$take_links"
 
   if [ "$collected" -gt 0 ]; then
-    echo_t "  ✅ ${collected} edifício(s) recolhido(s)!" "$GREEN_BLACK" "$COLOR_RESET"
+    echo_t "   ${collected} edifício(s) recolhido(s)!" "$GREEN_BLACK" "$COLOR_RESET"
     # Actualiza recursos após recolha
     fetch_page "/buildings"
     _buildings_show_resources
