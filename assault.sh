@@ -31,25 +31,25 @@
 assault_mode() {
   if [ "$FUNC_assault" = "n" ]; then return; fi
 
-  echo_t "Missão Especial (Assault)" "$GOLD_BLACK" "$COLOR_RESET" "after" "🏰"
+  echo_t "Missão Especial (Assault)" "$GOLD_BLACK" "$COLOR_RESET"
 
   fetch_page "/company/assault"
 
   if ! _session_active; then
-    echo_t "Sessão inválida na Missão Especial." "$BLACK_RED" "$COLOR_RESET" "after" "❌"
+    echo_t "Sessão inválida na Missão Especial." "$BLACK_RED" "$COLOR_RESET"
     go_hangar
     return
   fi
 
   if ! grep -q '<title>Missão especial</title>' "$TMP/SRC" 2>/dev/null; then
-    echo_t "Página de Missão Especial não encontrada." "$BLACK_YELLOW" "$COLOR_RESET" "after" "⚠️"
+    echo_t "Página de Missão Especial não encontrada." "$BLACK_YELLOW" "$COLOR_RESET"
     go_hangar
     return
   fi
 
   # Verifica se já está dentro de uma missão (overview)
   if grep -q 'overview-startBattleLink\|overview-refreshLink' "$TMP/SRC" 2>/dev/null; then
-    echo_t "  Já está numa missão activa." "$GOLD_BLACK" "$COLOR_RESET" "after" "⚔️"
+    echo_t "  Já está numa missão activa." "$GOLD_BLACK" "$COLOR_RESET"
     _assault_handle_active
     return
   fi
@@ -88,12 +88,12 @@ _assault_join_first() {
   local target_names=("Fortress" "Búnquer" "Casamata" "Blockhouse" "Abrigo subterrâneo")
   local target_name="${target_names[$target_idx]:-Alvo ${target_idx}}"
 
-  echo_t "  🚀 A entrar em: ${target_name}..." "$GREEN_BLACK" "$COLOR_RESET"
+  echo_t "   A entrar em: ${target_name}..." "$GREEN_BLACK" "$COLOR_RESET"
   fetch_page "/${first_link}"
   sleep 1s
 
   if _session_active && grep -q 'overview-refreshLink' "$TMP/SRC" 2>/dev/null; then
-    echo_t "  ✅ Entrou na missão!" "$GREEN_BLACK" "$COLOR_RESET"
+    echo_t "   Entrou na missão!" "$GREEN_BLACK" "$COLOR_RESET"
     _assault_handle_active
   else
     echo_t "  Não foi possível entrar na missão." "$BLACK_YELLOW" "$COLOR_RESET"
@@ -125,15 +125,15 @@ _assault_handle_active() {
     local current_members
     current_members=$(grep -o -E 'Tanquistas: [0-9]+' "$TMP/SRC" | grep -o -E '[0-9]+' | head -n1)
 
-    echo_t "  ⏳ Membros: ${current_members:-?}/${min_members} (mín)" "$GRAY_BLACK" "$COLOR_RESET"
+    echo_t "   Membros: ${current_members:-?}/${min_members} (mín)" "$GRAY_BLACK" "$COLOR_RESET"
 
     if [ -n "$current_members" ] && [ "$current_members" -ge "$min_members" ]; then
       # Membros suficientes — inicia combate
       if [ -n "$start_link" ]; then
-        echo_t "  ⚔️ A iniciar o combate!" "$RED_BLACK" "$COLOR_RESET"
+        echo_t "  [combate] A iniciar o combate!" "$RED_BLACK" "$COLOR_RESET"
         fetch_page "/${start_link}"
         sleep 2s
-        echo_t "  🏰 Missão especial iniciada!" "$GREEN_BLACK" "$COLOR_RESET"
+        echo_t "  [assalto] Missão especial iniciada!" "$GREEN_BLACK" "$COLOR_RESET"
       fi
       break
     fi
@@ -158,6 +158,6 @@ _assault_handle_active() {
     fi
   fi
 
-  echo_t "Missão Especial concluída." "$GREEN_BLACK" "$COLOR_RESET" "after" "✅"
+  echo_t "Missão Especial concluída." "$GREEN_BLACK" "$COLOR_RESET"
   go_hangar
 }
