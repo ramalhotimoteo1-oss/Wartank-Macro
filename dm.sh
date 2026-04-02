@@ -34,7 +34,7 @@ dm_check_and_apply() {
 
   # Batalha já activa?
   if grep -q 'currentControl-buttons-attackRegularShellLink' "$SRC" 2>/dev/null; then
-    echo_t "DM: Batalha activa detectada!" "$GOLD_BLACK" "$COLOR_RESET" "after" "💥"
+    echo_t "DM: Batalha activa detectada!" "$GOLD_BLACK" "$COLOR_RESET"
     _dm_fight_active
     return
   fi
@@ -47,7 +47,7 @@ dm_check_and_apply() {
   if [ -n "$apply_link" ]; then
     local next_time
     next_time=$(grep -o -E 'até o início [0-9]{2}:[0-9]{2}:[0-9]{2}' "$SRC" | head -n1)
-    echo_t "DM: A aplicar... ${next_time:-}" "$GOLD_BLACK" "$COLOR_RESET" "after" "💥"
+    echo_t "DM: A aplicar... ${next_time:-}" "$GOLD_BLACK" "$COLOR_RESET"
     fetch_page "/${apply_link}"
     sleep_rand 500 1000
     _dm_wait_battle_start
@@ -62,11 +62,11 @@ dm_mode() {
 # ── Aguarda ecrã "Preparando Combate" (6s) → inicia ─────────
 _dm_wait_battle_start() {
   local timeout=$(( $(date +%s) + 30 ))
-  echo_t "  ⏳ Preparando combate DM (6s)..." "$GRAY_BLACK" "$COLOR_RESET"
+  echo_t "   Preparando combate DM (6s)..." "$GRAY_BLACK" "$COLOR_RESET"
 
   while [ "$(date +%s)" -lt "$timeout" ]; do
     if grep -q 'currentControl-buttons-attackRegularShellLink' "$SRC" 2>/dev/null; then
-      echo_t "  💥 Batalha DM iniciada!" "$GREEN_BLACK" "$COLOR_RESET"
+      echo_t "  [dm] Batalha DM iniciada!" "$GREEN_BLACK" "$COLOR_RESET"
       _dm_fight_active
       return
     fi
@@ -117,7 +117,7 @@ _dm_fight_active() {
   local shots=0
   local timeout=$(( $(date +%s) + 600 ))
 
-  echo_t "  💥 DM — HP: ${DM_HP_PLAYER:-?} vs ${DM_HP_ENEMY:-?} | Tanques: ${DM_TANKS:-?}" \
+  echo_t "  [dm] DM — HP: ${DM_HP_PLAYER:-?} vs ${DM_HP_ENEMY:-?} | Tanques: ${DM_TANKS:-?}" \
     "$GOLD_BLACK" "$COLOR_RESET"
 
   while [ "$(date +%s)" -lt "$timeout" ]; do
@@ -142,7 +142,7 @@ _dm_fight_active() {
         'BEGIN{printf"%.0f",n/m*100}')
       if [ "$hp_pct" -le "${BATTLE_REPAIR_PCT:-30}" ] && \
          [ "$since_repair" -ge "${BATTLE_REPAIR_CD:-90}" ]; then
-        echo_t "  🔧 DM Repair! HP: ${DM_HP_PLAYER} (${hp_pct}%)" "$BLACK_YELLOW" "$COLOR_RESET"
+        echo_t "   DM Repair! HP: ${DM_HP_PLAYER} (${hp_pct}%)" "$BLACK_YELLOW" "$COLOR_RESET"
         fetch_page "/${DM_REPAIR}"
         last_repair=$now
         _dm_extract
@@ -153,7 +153,7 @@ _dm_fight_active() {
     # ── Manobra ───────────────────────────────────────────────
     if [ -n "$DM_MANEUVER" ] && [ "$since_maneuver" -ge "${BATTLE_MANEUVER_CD:-20}" ]; then
       if grep -q 'disparou a\|danos' "$SRC" 2>/dev/null; then
-        echo_t "  🛡️ DM Manobra!" "$BLUE_BLACK" "$COLOR_RESET"
+        echo_t "  [divisao] DM Manobra!" "$BLUE_BLACK" "$COLOR_RESET"
         fetch_page "/${DM_MANEUVER}"
         last_maneuver=$now
         _dm_extract
@@ -167,13 +167,13 @@ _dm_fight_active() {
       last_atk=$now
       shots=$(( shots + 1 ))
       _dm_extract
-      echo_t "  💥 DM #${shots} | HP: ${DM_HP_PLAYER:-?} vs ${DM_HP_ENEMY:-?}" \
+      echo_t "  [dm] DM #${shots} | HP: ${DM_HP_PLAYER:-?} vs ${DM_HP_ENEMY:-?}" \
         "$GRAY_BLACK" "$COLOR_RESET"
     else
       sleep_rand 800 1500
     fi
   done
 
-  echo_t "DM: ${shots} disparos." "$GREEN_BLACK" "$COLOR_RESET" "after" "✅"
+  echo_t "DM: ${shots} disparos." "$GREEN_BLACK" "$COLOR_RESET"
   go_hangar
 }
