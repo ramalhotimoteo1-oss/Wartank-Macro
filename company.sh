@@ -30,7 +30,7 @@
 company_func() {
   if [ "$FUNC_company" = "n" ]; then return; fi
 
-  echo_t "Divisão" "$GOLD_BLACK" "$COLOR_RESET" "after" "🛡️"
+  echo_t "Divisão" "$GOLD_BLACK" "$COLOR_RESET"
 
   fetch_page "/company/"
 
@@ -48,13 +48,13 @@ company_func() {
   clan_level=$(grep -o -E 'level\.png[^>]*/>[^0-9]*[0-9]+' "$TMP/SRC" | grep -o -E '[0-9]+' | head -n1)
   members_online=$(grep -o -E 'Тanquistas: [0-9]+ de [0-9]+' "$TMP/SRC" | head -n1)
 
-  echo_t "  🛡️ ${clan_name:-?} | Nível: ${clan_level:-?}" "$GRAY_BLACK" "$COLOR_RESET"
+  echo_t "  [divisao] ${clan_name:-?} | Nível: ${clan_level:-?}" "$GRAY_BLACK" "$COLOR_RESET"
   echo_t "  👥 ${members_online:-?}" "$GRAY_BLACK" "$COLOR_RESET"
 
   # Missões da divisão
   _company_missions
 
-  echo_t "Divisão verificada." "$GREEN_BLACK" "$COLOR_RESET" "after" "✅"
+  echo_t "Divisão verificada." "$GREEN_BLACK" "$COLOR_RESET"
   go_hangar
 }
 
@@ -70,13 +70,13 @@ _company_missions() {
   if [ -n "$award_links" ]; then
     while IFS= read -r link; do
       [ -z "$link" ] && continue
-      echo_t "  🎁 A recolher missão da divisão..." "$GREEN_BLACK" "$COLOR_RESET"
+      echo_t "   A recolher missão da divisão..." "$GREEN_BLACK" "$COLOR_RESET"
       fetch_page "/${link}"
       collected=$(( collected + 1 ))
       sleep 0.5s
     done <<< "$award_links"
     [ "$collected" -gt 0 ] && \
-      echo_t "  ✅ ${collected} missão(ões) da divisão recolhida(s)!" "$GREEN_BLACK" "$COLOR_RESET"
+      echo_t "   ${collected} missão(ões) da divisão recolhida(s)!" "$GREEN_BLACK" "$COLOR_RESET"
   fi
 }
 
@@ -91,8 +91,8 @@ company_fuel_depot() {
     "$TMP/SRC" | head -n1)
 
   if [ -n "$fuel_link" ]; then
-    echo_t "  ⛽ A recolher combustível da divisão..." "$GREEN_BLACK" "$COLOR_RESET"
+    echo_t "   A recolher combustível da divisão..." "$GREEN_BLACK" "$COLOR_RESET"
     fetch_page "/${fuel_link}"
-    echo_t "  ✅ Combustível recolhido!" "$GREEN_BLACK" "$COLOR_RESET"
+    echo_t "   Combustível recolhido!" "$GREEN_BLACK" "$COLOR_RESET"
   fi
 }
