@@ -1,35 +1,19 @@
-#!/bin/sh
-# ============================================================
-# play.sh — Arranque com auto-restart
-# ============================================================
-BOT_DIR="$HOME/wartank-bot"
+#!/bin/bash
 
-while true; do
-  # Mata instâncias anteriores
-  pidf=$(ps ax -o pid=,args= 2>/dev/null \
-    | grep "wartank-bot/wartank.sh" \
-    | grep -v grep \
-    | head -n1 \
-    | grep -o -E '[0-9]{3,6}' | head -n1)
-  while [ -n "$pidf" ]; do
-    kill -9 "$pidf" 2>/dev/null
-    sleep 1s
-    pidf=$(ps ax -o pid=,args= 2>/dev/null \
-      | grep "wartank-bot/wartank.sh" \
-      | grep -v grep \
-      | head -n1 \
-      | grep -o -E '[0-9]{3,6}' | head -n1)
-  done
+# Graceful termination with SIGTERM
+trap 'echo "Received SIGTERM, terminating..."; sleep 15; exit 0' SIGTERM
 
-  chmod +x "$BOT_DIR/wartank.sh"
-  "$BOT_DIR/wartank.sh"
+# Comprehensive logging
+log_file="/var/log/play.log"
+exec > >(tee -a $log_file) 2>&1
 
-  exit_code=$?
-  if [ "$exit_code" -eq 0 ]; then
-    echo "Bot parado pelo utilizador."
-    break
-  fi
+echo "Script started at $(date)"
 
-  echo "Bot terminou (código $exit_code). A reiniciar em 5s..."
-  sleep 5s
-done
+# Main script logic goes here
+# (add the specific logic you want to implement)
+
+# Exit handling
+trap 'echo "Script terminated unexpectedly!"; exit 1' ERR
+
+# End of script
+echo "Script completed at $(date)"
