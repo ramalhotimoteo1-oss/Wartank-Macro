@@ -5,7 +5,7 @@
 # ============================================================
 
 go_hangar() {
-  echo_t "Hangar" "$GOLD_BLACK" "$COLOR_RESET" "after" "🏠"
+  echo_t "Hangar" "$GOLD_BLACK" "$COLOR_RESET"
   fetch_page "/angar"
 
   # Verifica se chegou ao hangar (título real é "Hangar")
@@ -16,7 +16,7 @@ go_hangar() {
 
   # Redirecionado para login → reconecta
   if grep -q 'showSigninLink\|IFormSubmitListener-loginForm' "$TMP/SRC" 2>/dev/null; then
-    echo_t "Sessão perdida. A reconectar..." "$BLACK_YELLOW" "$COLOR_RESET" "after" "⚠️"
+    echo_t "Sessão perdida. A reconectar..." "$BLACK_YELLOW" "$COLOR_RESET"
     _do_login
     fetch_page "/angar"
     _parse_hangar_info
@@ -47,8 +47,8 @@ _parse_hangar_info() {
 
   # ── Exibe estado ─────────────────────────────────────────────
   echo_t "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" "$GRAY_BLACK" "$COLOR_RESET"
-  echo_t "👤 ${ACC:-Jogador}  |  Nível: ${PLAYER_LEVEL:-?}  |  ID: ${PLAYER_ID:-?}" "$GRAY_BLACK" "$COLOR_RESET"
-  echo_t "⛽ Combustível: ${FUEL_CURRENT:-?}" "$GRAY_BLACK" "$COLOR_RESET"
+  echo_t " ${ACC:-Jogador}  |  Nível: ${PLAYER_LEVEL:-?}  |  ID: ${PLAYER_ID:-?}" "$GRAY_BLACK" "$COLOR_RESET"
+  echo_t " Combustível: ${FUEL_CURRENT:-?}" "$GRAY_BLACK" "$COLOR_RESET"
   echo_t "🪙 Ouro: ${GOLD:-?}  |  🥈 Prata: ${SILVER:-?}" "$GRAY_BLACK" "$COLOR_RESET"
   echo_t "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" "$GRAY_BLACK" "$COLOR_RESET"
 }
@@ -63,7 +63,7 @@ has_fuel() {
   fi
 
   if [ "$FUEL_CURRENT" -le "$min_fuel" ] 2>/dev/null; then
-    echo_t "Sem combustível (${FUEL_CURRENT})." "$BLACK_RED" "$COLOR_RESET" "after" "⛽"
+    echo_t "Sem combustível (${FUEL_CURRENT})." "$BLACK_RED" "$COLOR_RESET"
     return 1
   fi
   return 0
@@ -72,7 +72,7 @@ has_fuel() {
 # Aguarda regeneração de combustível
 wait_fuel() {
   local wait_min="${1:-5}"
-  echo_t "A aguardar combustível..." "$GRAY_BLACK" "$COLOR_RESET" "after" "⏳"
+  echo_t "A aguardar combustível..." "$GRAY_BLACK" "$COLOR_RESET"
   sleep "${wait_min}m"
   go_hangar
 }
@@ -83,7 +83,7 @@ hangar_status() {
   local h m
   printf -v h '%(%H)T' -1
   printf -v m '%(%M)T' -1
-  echo_t "🕐 ${h}:${m}  |  wartank-pt.net" "$GOLD_BLACK" "$COLOR_RESET"
+  echo_t " ${h}:${m}  |  wartank-pt.net" "$GOLD_BLACK" "$COLOR_RESET"
 }
 
 # Extrai o jsessionid actual da página (para uso em rotas)
