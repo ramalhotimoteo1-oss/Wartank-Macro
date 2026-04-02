@@ -21,18 +21,18 @@
 convoy_mode() {
   if [ "$FUNC_convoy" = "n" ]; then return; fi
 
-  echo_t "Escolta (Comboio)" "$GOLD_BLACK" "$COLOR_RESET" "after" "🚛"
+  echo_t "Escolta (Comboio)" "$GOLD_BLACK" "$COLOR_RESET"
 
   fetch_page "/convoy"
 
   if ! _session_active; then
-    echo_t "Sessão inválida na Escolta." "$BLACK_RED" "$COLOR_RESET" "after" "❌"
+    echo_t "Sessão inválida na Escolta." "$BLACK_RED" "$COLOR_RESET"
     go_hangar
     return
   fi
 
   if ! grep -q '<title>Escolta</title>' "$TMP/SRC" 2>/dev/null; then
-    echo_t "Página de Escolta não encontrada." "$BLACK_YELLOW" "$COLOR_RESET" "after" "⚠️"
+    echo_t "Página de Escolta não encontrada." "$BLACK_YELLOW" "$COLOR_RESET"
     go_hangar
     return
   fi
@@ -46,12 +46,12 @@ convoy_mode() {
   if [ -n "$award_links" ]; then
     while IFS= read -r link; do
       [ -z "$link" ] && continue
-      echo_t "  🎁 A recolher recompensa da escolta..." "$GREEN_BLACK" "$COLOR_RESET"
+      echo_t "   A recolher recompensa da escolta..." "$GREEN_BLACK" "$COLOR_RESET"
       fetch_page "/${link}"
       collected=$(( collected + 1 ))
       sleep 0.5s
     done <<< "$award_links"
-    echo_t "  ✅ ${collected} recompensa(s) recolhida(s)!" "$GREEN_BLACK" "$COLOR_RESET"
+    echo_t "   ${collected} recompensa(s) recolhida(s)!" "$GREEN_BLACK" "$COLOR_RESET"
     # Refresh após recolha
     fetch_page "/convoy"
   fi
@@ -75,7 +75,7 @@ convoy_mode() {
         "$TMP/SRC" | head -n1)
 
       if [ -n "$attack_link" ]; then
-        echo_t "  ⚔️ Comboio encontrado! A atacar..." "$RED_BLACK" "$COLOR_RESET"
+        echo_t "  [combate] Comboio encontrado! A atacar..." "$RED_BLACK" "$COLOR_RESET"
         fetch_page "/${attack_link}"
         sleep 1s
       fi
@@ -90,6 +90,6 @@ convoy_mode() {
     echo_t "  Em progresso: ${active} | Bloqueadas: ${locked}" "$GRAY_BLACK" "$COLOR_RESET"
   fi
 
-  echo_t "Escolta concluída." "$GREEN_BLACK" "$COLOR_RESET" "after" "✅"
+  echo_t "Escolta concluída." "$GREEN_BLACK" "$COLOR_RESET"
   go_hangar
 }
