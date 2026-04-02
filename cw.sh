@@ -40,7 +40,7 @@ cw_check_and_apply() {
 
   # Detecta se está numa batalha activa (tem attackRegularShellLink)
   if grep -q 'currentControl-buttons-attackRegularShellLink' "$SRC" 2>/dev/null; then
-    echo_t "CW: Batalha activa detectada!" "$GOLD_BLACK" "$COLOR_RESET" "after" "⚔️"
+    echo_t "CW: Batalha activa detectada!" "$GOLD_BLACK" "$COLOR_RESET"
     _cw_fight_active
     return
   fi
@@ -60,7 +60,7 @@ cw_check_and_apply() {
     war_country=$(grep -o -E 'class="green1">[^<]+' "$SRC" | sed 's/.*">//' | head -n1)
     war_start=$(grep -o -E 'Start in [0-9]{2}:[0-9]{2}:[0-9]{2}' "$SRC" | head -n1)
     echo_t "CW: A entrar — ${war_country:-?} ${war_start:-}" \
-      "$GOLD_BLACK" "$COLOR_RESET" "after" "⚔️"
+      "$GOLD_BLACK" "$COLOR_RESET"
     fetch_page "/${enter_link}"
     sleep_rand 500 1000
 
@@ -86,12 +86,12 @@ cw_mode() {
 # ── Aguarda ecrã "Preparando Combate" → batalha inicia ──────
 _cw_wait_battle_start() {
   local timeout=$(( $(date +%s) + 60 ))
-  echo_t "  ⏳ Preparando combate CW..." "$GRAY_BLACK" "$COLOR_RESET"
+  echo_t "   Preparando combate CW..." "$GRAY_BLACK" "$COLOR_RESET"
 
   while [ "$(date +%s)" -lt "$timeout" ]; do
     # Batalha iniciada?
     if grep -q 'currentControl-buttons-attackRegularShellLink' "$SRC" 2>/dev/null; then
-      echo_t "  ⚔️ Batalha CW iniciada!" "$GREEN_BLACK" "$COLOR_RESET"
+      echo_t "  [combate] Batalha CW iniciada!" "$GREEN_BLACK" "$COLOR_RESET"
       _cw_fight_active
       return
     fi
@@ -147,7 +147,7 @@ _cw_fight_active() {
   local shots=0
   local timeout=$(( $(date +%s) + 600 )) # 10 min max
 
-  echo_t "  ⚔️ CW — HP: ${CW_HP_PLAYER:-?} vs ${CW_HP_ENEMY:-?} | Tanques: ${CW_TANKS:-?}" \
+  echo_t "  [combate] CW — HP: ${CW_HP_PLAYER:-?} vs ${CW_HP_ENEMY:-?} | Tanques: ${CW_TANKS:-?}" \
     "$GOLD_BLACK" "$COLOR_RESET"
 
   while [ "$(date +%s)" -lt "$timeout" ]; do
@@ -172,7 +172,7 @@ _cw_fight_active() {
         'BEGIN{printf"%.0f",n/m*100}')
       if [ "$hp_pct" -le "${BATTLE_REPAIR_PCT:-30}" ] && \
          [ "$since_repair" -ge "${BATTLE_REPAIR_CD:-90}" ]; then
-        echo_t "  🔧 CW Repair! HP: ${CW_HP_PLAYER} (${hp_pct}%)" "$BLACK_YELLOW" "$COLOR_RESET"
+        echo_t "   CW Repair! HP: ${CW_HP_PLAYER} (${hp_pct}%)" "$BLACK_YELLOW" "$COLOR_RESET"
         fetch_page "/${CW_REPAIR}"
         last_repair=$now
         _cw_extract
@@ -183,7 +183,7 @@ _cw_fight_active() {
     # ── Manobra ───────────────────────────────────────────────
     if [ -n "$CW_MANEUVER" ] && [ "$since_maneuver" -ge "${BATTLE_MANEUVER_CD:-20}" ]; then
       if grep -q 'disparou a\|danos' "$SRC" 2>/dev/null; then
-        echo_t "  🛡️ CW Manobra!" "$BLUE_BLACK" "$COLOR_RESET"
+        echo_t "  [divisao] CW Manobra!" "$BLUE_BLACK" "$COLOR_RESET"
         fetch_page "/${CW_MANEUVER}"
         last_maneuver=$now
         _cw_extract
@@ -197,13 +197,13 @@ _cw_fight_active() {
       last_atk=$now
       shots=$(( shots + 1 ))
       _cw_extract
-      echo_t "  💥 CW #${shots} | HP: ${CW_HP_PLAYER:-?} vs ${CW_HP_ENEMY:-?} | ⏱️ ${CW_TIME:-?}" \
+      echo_t "  [dm] CW #${shots} | HP: ${CW_HP_PLAYER:-?} vs ${CW_HP_ENEMY:-?} | ⏱️ ${CW_TIME:-?}" \
         "$GRAY_BLACK" "$COLOR_RESET"
     else
       sleep_rand 800 1500
     fi
   done
 
-  echo_t "CW: ${shots} disparos." "$GREEN_BLACK" "$COLOR_RESET" "after" "✅"
+  echo_t "CW: ${shots} disparos." "$GREEN_BLACK" "$COLOR_RESET"
   go_hangar
 }
