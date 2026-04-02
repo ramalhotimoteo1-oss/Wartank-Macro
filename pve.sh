@@ -19,18 +19,18 @@
 pve_mode() {
   if [ "$FUNC_pve" = "n" ]; then return; fi
 
-  echo_t "PvE — Batalhas Históricas" "$GOLD_BLACK" "$COLOR_RESET" "after" "🎖️"
+  echo_t "PvE — Batalhas Históricas" "$GOLD_BLACK" "$COLOR_RESET"
 
   fetch_page "/pve"
 
   if ! _session_active; then
-    echo_t "Sessão inválida no PvE." "$BLACK_RED" "$COLOR_RESET" "after" "❌"
+    echo_t "Sessão inválida no PvE." "$BLACK_RED" "$COLOR_RESET"
     go_hangar
     return
   fi
 
   if ! grep -q '<title>Batalhas</title>' "$TMP/SRC" 2>/dev/null; then
-    echo_t "Página PvE não encontrada." "$BLACK_YELLOW" "$COLOR_RESET" "after" "⚠️"
+    echo_t "Página PvE não encontrada." "$BLACK_YELLOW" "$COLOR_RESET"
     go_hangar
     return
   fi
@@ -52,7 +52,7 @@ pve_mode() {
     "$TMP/SRC" | head -n1)
 
   if [ -n "$apply_link" ]; then
-    echo_t "  ✅ A aplicar na batalha..." "$GREEN_BLACK" "$COLOR_RESET"
+    echo_t "   A aplicar na batalha..." "$GREEN_BLACK" "$COLOR_RESET"
     fetch_page "/${apply_link}"
     sleep 1s
 
@@ -71,7 +71,7 @@ pve_mode() {
       done
   fi
 
-  echo_t "PvE concluído." "$GREEN_BLACK" "$COLOR_RESET" "after" "✅"
+  echo_t "PvE concluído." "$GREEN_BLACK" "$COLOR_RESET"
   go_hangar
 }
 
@@ -88,7 +88,7 @@ pve_check_and_apply() {
     local battle next_time
     battle=$(grep -o -E 'class="green2">[^<]+' "$TMP/SRC" | sed 's/.*">//' | head -n1)
     next_time=$(grep -o -E 'até o início [0-9]{2}:[0-9]{2}:[0-9]{2}' "$TMP/SRC" | head -n1)
-    echo_t "PvE: A aplicar em ${battle:-batalha}... ${next_time}" "$GOLD_BLACK" "$COLOR_RESET" "after" "🎖️"
+    echo_t "PvE: A aplicar em ${battle:-batalha}... ${next_time}" "$GOLD_BLACK" "$COLOR_RESET"
     fetch_page "/${apply_link}"
     sleep 1s
   fi
@@ -97,7 +97,7 @@ pve_check_and_apply() {
 # ── Dentro da batalha PvE activa ─────────────────────────────
 # (Chamado quando já está dentro da batalha)
 pve_fight_active() {
-  echo_t "PvE — Em batalha" "$GOLD_BLACK" "$COLOR_RESET" "after" "⚔️"
+  echo_t "PvE — Em batalha" "$GOLD_BLACK" "$COLOR_RESET"
 
   local shots=0
   local timeout=$(( $(date +%s) + 600 ))
@@ -135,7 +135,7 @@ pve_fight_active() {
       local since_repair
       since_repair=$(( now - last_repair ))
       if [ "$since_repair" -ge "${BATTLE_REPAIR_CD:-90}" ]; then
-        echo_t "  🔧 Repair PvE!" "$BLACK_YELLOW" "$COLOR_RESET"
+        echo_t "   Repair PvE!" "$BLACK_YELLOW" "$COLOR_RESET"
         fetch_page "/${repair}"
         last_repair=$now
         continue
@@ -148,7 +148,7 @@ pve_fight_active() {
       since_maneuver=$(( now - last_maneuver ))
       if [ "$since_maneuver" -ge "${BATTLE_MANEUVER_CD:-20}" ] && \
          grep -q 'disparou a\|danos' "$TMP/SRC" 2>/dev/null; then
-        echo_t "  🛡️ Manobra PvE!" "$BLUE_BLACK" "$COLOR_RESET"
+        echo_t "  [divisao] Manobra PvE!" "$BLUE_BLACK" "$COLOR_RESET"
         fetch_page "/${maneuver}"
         last_maneuver=$now
         continue
@@ -160,7 +160,7 @@ pve_fight_active() {
       fetch_page "/${atk}"
       last_atk=$now
       shots=$(( shots + 1 ))
-      echo_t "  💥 PvE #${shots} | HP: ${hp_player:-?}" "$GRAY_BLACK" "$COLOR_RESET"
+      echo_t "  [dm] PvE #${shots} | HP: ${hp_player:-?}" "$GRAY_BLACK" "$COLOR_RESET"
     else
       sleep 1s
     fi
