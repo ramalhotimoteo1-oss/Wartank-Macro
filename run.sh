@@ -1,5 +1,9 @@
 #!/bin/bash
-# run.sh — scheduler v1.3.0
+# run.sh — scheduler v1.3.1
+# Correcoes:
+#   - load_config removido do _maintenance (causa recriar config em loop)
+#   - battle chamado directamente sem _battle_ready separado
+#   - combustivel lido do $SRC do hangar ja carregado
 
 func_sleep() {
   local m
@@ -23,8 +27,8 @@ _idle_wait() {
     if read -r -t 1 cmd 2>/dev/null; then
       case "$cmd" in
         stop|exit|q|x) echo "a parar..."; exit 0 ;;
-        config) config_menu ;;
-        status) hangar_status ;;
+        config) config_menu; load_config ;;
+        status) go_hangar ;;
       esac
     fi
     count=$(( count + 1 ))
@@ -61,37 +65,30 @@ _check_battles() {
   fi
 }
 
-_battle_ready() {
-  # Fix 3: sempre vai ao hangar para ler combustivel actualizado
-  # nao depende de FUEL_CURRENT cached de outra pagina
-  fetch_page "/angar"
-  FUEL_CURRENT=$(grep -o -E 'fuel\.png[^/]*/>[^0-9]*[0-9]+' "$SRC" 2>/dev/null \
-    | grep -o -E '[0-9]+$' | head -n1)
-
-  [ -z "$FUEL_CURRENT" ] && { echo "[battle] nao conseguiu ler combustivel"; return 0; }
-  local min="${FUEL_MIN:-0}"
-  if [ "$FUEL_CURRENT" -le "$min" ] 2>/dev/null; then
-    echo "[battle] sem combustivel ($FUEL_CURRENT)"
-    return 1
-  fi
-  echo "[battle] combustivel ok: $FUEL_CURRENT"
-  return 0
-}
-
 _maintenance() {
-  load_config
+  # IMPORTANTE: load_config NAO e chamado aqui
+  # E carregado uma vez no arranque pelo wartank.sh
+  # Chamar aqui recria o config em cada ciclo
 
-  # 1. BATTLE PRIMEIRO — prioridade maxima antes de qualquer outro modulo
+  # 1. Battle — primeira prioridade
   if [ "$FUNC_battle" = "y" ]; then
-    if _battle_ready; then
+    # Vai ao hangar para ler combustivel actualizado
+    go_hangar
+    # FUEL_CURRENT e populado por _parse_hangar_info dentro de go_hangar
+    if [ -z "$FUEL_CURRENT" ] || [ "$FUEL_CURRENT" -gt "${FUEL_MIN:-0}" ] 2>/dev/null; then
+      echo "[run] a iniciar battle (combustivel: ${FUEL_CURRENT:-?})"
       adiante_a_combate
+    else
+      echo "[run] sem combustivel para battle"
     fi
   fi
 
-  # 2. Recolha de recompensas
-  collect_all_rewards
+  # 2. Missoes
+  if [ "$FUNC_missions" = "y" ]; then
+    collect_all_rewards
+  fi
 
-  # 3. Modulos de manutencao — nao bloqueiam
+  # 3. Modulos opcionais
   [ "$FUNC_buildings" = "y" ] && buildings_func
   [ "$FUNC_convoy" = "y" ]    && convoy_mode
   [ "$FUNC_company" = "y" ]   && company_func
