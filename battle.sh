@@ -1,39 +1,32 @@
 #!/bin/bash
-# battle.sh — Adiante a Combater v1.4.0
+# battle.sh — Adiante a Combater v1.5.0
+#
+# Logica baseada no TitansWarPro/arena_duel:
+#   - fetch_page inicial em /battle
+#   - extrai link do SRC actual
+#   - dispara (fetch_page do link)
+#   - a resposta JA contem o proximo link (lastOpponentPanel ou novo opponents)
+#   - NAO volta a /battle — continua a partir do SRC actual
+#   - so volta a /battle se nao houver link (novo ciclo)
 #
 # Fluxo real confirmado nos HTMLs:
+#   /battle                           → opponents-opponents-N-attackLink2 "Disparar"
+#   → disparo →                       → lastOpponentPanel-attackLink2     "Acabar de matar"
+#   → disparo →                       → lastOpponentPanel-attackLink2     "Destruir"
+#   → disparo →                       → opponents-opponents-N-attackLink2 "Disparar" (novo)
 #
-#   Estado 1 — Pagina inicial (/battle), 2 oponentes:
-#     opponents-opponents-0-...-attackLink2  → "Disparar"
-#     opponents-opponents-1-...-attackLink2  → "Disparar"
-#
-#   Estado 2 — Apos 1 disparo, inimigo com vida:
-#     lastOpponentPanel-...-attackLink2      → "Acabar de matar"
-#
-#   Estado 3 — Apos 2 disparos, inimigo quase morto:
-#     lastOpponentPanel-...-attackLink2      → "Destruir"
-#
-#   Estado 4 — Inimigo destruido, novos oponentes:
-#     opponents-opponents-0-...-attackLink2  → "Disparar"  (volta ao estado 1)
-#
-#   REGEX UNIVERSAL: battle?X-X.ILinkListener-[qualquer coisa]-attackLink2
-#   Cobre todos os estados sem necessidade de alternar logica.
-#
-# Logica simplificada:
-#   - Procura sempre o primeiro attackLink2 disponivel na pagina
-#   - Dispara
-#   - A pagina seguinte ja mostra o proximo botao correcto
-#   - Repete ate BATTLE_SHOTS disparos
+# Regex universal: battle?X-X.ILinkListener-*-attackLink2
 
 adiante_a_combate() {
   [ "$FUNC_battle" = "n" ] && return 0
 
   echo "[battle] inicio"
 
+  # Unico fetch inicial — como o TitansWarPro faz fetch_page "/arena/"
   fetch_page "/battle"
 
   if ! grep -q '<title>Combate</title>' "$SRC" 2>/dev/null; then
-    echo "[battle] pagina invalida: $(grep -o '<title>[^<]*</title>' "$SRC" 2>/dev/null | head -n1)"
+    echo "[battle] pagina invalida: $(grep -o '<title>[^<]*</title>' "$SRC" 2>/dev/null)"
     return 0
   fi
 
@@ -42,7 +35,6 @@ adiante_a_combate() {
   local timeout=$(( $(date +%s) + ${BATTLE_TIMEOUT:-600} ))
   local total_shots=0
   local ATK_LINK
-  local miss=0
 
   echo "[battle] meta: $target_shots disparos | LA: ${la}s"
 
@@ -50,42 +42,41 @@ adiante_a_combate() {
 
     _session_active || { echo "[battle] sessao perdida"; break; }
 
-    # Sem combustivel — site redireccionou para fora do Combate
+    # Verifica se ainda esta em pagina de combate
     if ! grep -q '<title>Combate</title>' "$SRC" 2>/dev/null; then
-      echo "[battle] saiu do combate: $(grep -o '<title>[^<]*</title>' "$SRC" 2>/dev/null | head -n1)"
+      echo "[battle] saiu do combate"
       break
     fi
 
-    # REGEX UNIVERSAL — apanha qualquer attackLink2 independente do estado
-    # Cobre: Disparar, Acabar de matar, Destruir
+    # Extrai link do SRC ACTUAL (nao recarrega a pagina)
+    # Cobre todos os estados: Disparar, Acabar de matar, Destruir
     ATK_LINK=$(grep -o -E \
       'battle\?[0-9]+-[0-9]+\.ILinkListener-[^"]+attackLink2' \
       "$SRC" | head -n1)
 
     if [ -z "$ATK_LINK" ]; then
-      miss=$(( miss + 1 ))
-      echo "[battle] sem link ($miss/3) — recarregando"
-      # Apos 3 tentativas sem link, desiste
-      if [ "$miss" -ge 3 ]; then
-        echo "[battle] sem link apos 3 tentativas, a terminar"
+      # Sem link no SRC actual — tenta recarregar /battle uma vez
+      echo "[battle] sem link, a recarregar /battle"
+      fetch_page "/battle"
+      ATK_LINK=$(grep -o -E \
+        'battle\?[0-9]+-[0-9]+\.ILinkListener-[^"]+attackLink2' \
+        "$SRC" | head -n1)
+      if [ -z "$ATK_LINK" ]; then
+        echo "[battle] sem link apos reload, a terminar"
         break
       fi
-      fetch_page "/battle"
-      sleep "${la}s"
-      continue
     fi
 
-    # Encontrou link — reset do contador de miss
-    miss=0
-
-    # Intervalo entre disparos
+    # Intervalo entre disparos (BATTLE_LA segundos)
     sleep "${la}s"
 
-    # Dispara
+    # Dispara — a resposta do fetch ja contem o proximo estado
     fetch_page "$ATK_LINK"
-    sleep_rand 200 500
+    sleep_rand 200 400
     total_shots=$(( total_shots + 1 ))
     echo "[battle] disparo $total_shots/$target_shots"
+
+    # NAO fazer fetch_page "/battle" aqui — o SRC ja tem o proximo link
 
   done
 
