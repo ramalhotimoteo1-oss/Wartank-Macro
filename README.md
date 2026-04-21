@@ -1,4 +1,3 @@
-
 # ⚔️ Wartank Macro (Termux)
 
 Automação (macro/bot) para o jogo Wartank, desenvolvida para rodar diretamente no **Termux (Android)**.
