@@ -1,285 +1,351 @@
 # Wartank Bot v1.3.0
 
-Bot automatizado para **wartank-pt.net** — escrito em Bash puro.
-Funciona no **Termux (Android)** e em qualquer Linux.
-Suporte a **múltiplas contas** com workers isolados.
+Bot automático para wartank-pt.net — funciona no Android via Termux.
 
 ---
 
-## Instalação
+## PARTE 1 — Instalar o Termux
+
+**O que é o Termux?**
+É um terminal Linux que corre no Android. O bot precisa dele para funcionar.
+
+**Passo 1** — Instala o Termux pela F-Droid (recomendado, versão mais actualizada):
+
+```
+https://f-droid.org/packages/com.termux/
+```
+
+> Não uses a versão da Play Store — está desactualizada.
+
+---
+
+**Passo 2** — Abre o Termux e actualiza os pacotes:
 
 ```bash
-# 1. Copia os ficheiros para a pasta do bot
-cp -r wartank-bot ~/Wartank-Bot
+pkg update
+```
+
+```bash
+pkg upgrade
+```
+
+> Quando perguntar "Do you want to continue? [y/N]" escreve `y` e prime Enter.
+
+---
+
+**Passo 3** — Instala as ferramentas necessárias:
+
+```bash
+pkg install curl
+```
+
+```bash
+pkg install bash
+```
+
+```bash
+pkg install grep
+```
+
+> O `sed`, `awk` e `base64` já vêm instalados por defeito no Termux.
+
+---
+
+**Passo 4** — Verifica que tudo está instalado:
+
+```bash
+curl --version && bash --version && grep --version
+```
+
+> Se aparecerem versões sem erros, está pronto.
+
+---
+
+## PARTE 2 — Instalar o Bot
+
+**Passo 1** — Cria a pasta do bot:
+
+```bash
+mkdir -p ~/Wartank-Bot
+```
+
+**Passo 2** — Entra na pasta:
+
+```bash
 cd ~/Wartank-Bot
+```
 
-# 2. Da permissao de execucao
+**Passo 3** — Copia os ficheiros do bot para esta pasta.
+
+> Podes fazer via USB, Bluetooth, ou qualquer gestor de ficheiros.
+> Os ficheiros que precisas estão todos na pasta `wartank-bot` que recebeste.
+
+**Passo 4** — Dá permissão de execução a todos os scripts:
+
+```bash
 chmod +x *.sh
+```
 
-# 3. Adiciona a tua conta
+---
+
+## PARTE 3 — Configurar a Conta
+
+**Passo 1** — Abre o menu de gestão de contas:
+
+```bash
 ./setup.sh
-
-# 4. Inicia o bot
-./play.sh
 ```
+
+**Passo 2** — Escolhe a opção `2) Adicionar`
+
+**Passo 3** — Insere o teu username do wartank-pt.net
+
+**Passo 4** — Insere a tua password
+
+> A password não aparece no ecrã enquanto escreves — é normal.
+> As credenciais ficam guardadas de forma segura em base64.
 
 ---
 
-## Ficheiros — o que faz cada um
+## PARTE 4 — Iniciar o Bot
 
-```
-Wartank-Bot/
-├── play.sh        → Inicia o bot (single ou multi-contas)
-├── setup.sh       → Gere contas (adicionar / remover)
-├── stop.sh        → Para o bot e todos os workers
-├── worker.sh      → Loop de uma conta (chamado pelo play.sh)
-├── wartank.sh     → Engine principal — carrega todos os modulos
-├── core.sh        → Funcoes base: fetch_page, login, sessao, logs
-├── config.sh      → Configuracoes e menu interactivo
-├── login.sh       → Login no wartank-pt.net
-├── hangar.sh      → Hangar — ponto central entre todas as accoes
-├── run.sh         → Scheduler — decide o que fazer a cada ciclo
-├── battle.sh      → Adiante a Combater (batalha normal)
-├── pvp.sh         → PvP (horario configuravel)
-├── pve.sh         → PvE — Batalhas historicas
-├── cw.sh          → Guerra (Clan War)
-├── dm.sh          → Disputa (Deathmatch)
-├── missions.sh    → Missoes normais e especiais
-├── buildings.sh   → Base — recolha de producao
-├── convoy.sh      → Escolta (comboio inimigo)
-├── company.sh     → Divisao e missoes de divisao
-├── assault.sh     → Missao especial (Assault)
-└── accounts.conf  → Lista de contas (criado pelo setup.sh)
-```
-
----
-
-## Como usar — Single conta
+**Para iniciar:**
 
 ```bash
 ./play.sh
 ```
 
-O bot faz login, vai ao hangar e entra no loop automatico.
-Para parar, escreve `stop` no terminal.
+> O bot faz login, vai ao hangar e entra em modo automático.
+> Vais ver as acções a aparecer no ecrã em tempo real.
 
 ---
 
-## Como usar — Multi-contas
+**Para parar o bot:**
+
+Escreve no terminal e prime Enter:
+
+```
+stop
+```
+
+---
+
+**Para parar o bot à força (se o terminal estiver bloqueado):**
 
 ```bash
-# Passo 1: adiciona cada conta
-./setup.sh
-# Escolhe "2) Adicionar" e insere username + password para cada conta
-
-# Passo 2: inicia todas as contas
-./play.sh
-# O bot lanca um worker por conta, cada um em background
-
-# Para ver o log de uma conta
-tail -f ~/.wartank/USERNAME/bot.log
-
-# Para parar tudo
 ./stop.sh
 ```
 
-Cada conta corre de forma **completamente independente**.
-Os dados de cada conta ficam em `~/.wartank/USERNAME/`.
-
 ---
 
-## Comandos durante execucao
+## PARTE 5 — Comandos Durante a Execução
 
-Escreve no terminal enquanto o bot corre:
+Enquanto o bot está a correr, podes escrever no terminal:
 
-| Comando  | O que faz                        |
-|----------|----------------------------------|
-| `stop`   | Para o bot                       |
-| `config` | Abre o menu de configuracoes     |
-| `status` | Actualiza e mostra estado actual |
-
----
-
-## Configuracoes (config.cfg)
-
-O ficheiro `config.cfg` e criado automaticamente na primeira execucao.
-Podes editar manualmente ou usar o menu `config` durante a execucao.
+**Ver configurações e mudar:**
 
 ```
-# Modulos activos (y=sim, n=nao)
-FUNC_battle=y          # Batalha normal (Adiante a Combater)
-FUNC_missions=y        # Recolha de missoes
-FUNC_special_missions=y
-FUNC_pvp=y             # PvP
-FUNC_pvp_hour=21       # Hora do PvP (0-23)
-FUNC_pve=y             # PvE (batalhas historicas)
-FUNC_cw=y              # Guerra (Clan War)
-FUNC_dm=y              # Disputa (Deathmatch)
-FUNC_convoy=y          # Escolta
-FUNC_buildings=y       # Base (recolha de producao)
-FUNC_assault=y         # Missao especial
-FUNC_company=y         # Divisao
+config
+```
 
-# Batalha normal
-BATTLE_LA=3            # Segundos entre disparos
-BATTLE_SHOTS=9         # Total de disparos (9 = 3 inimigos destruidos)
-BATTLE_TIMEOUT=600     # Timeout maximo em segundos
+**Ver estado actual (hangar, combustível):**
 
-# PvE
-PVE_RELOAD=6           # Segundos entre disparos no PvE
-PVE_TIMEOUT=600        # Timeout maximo em segundos
+```
+status
+```
 
-# Geral
-FUEL_MIN=0             # Combustivel minimo para batalhar
-ASSAULT_MIN_MEMBERS=2  # Membros minimos para iniciar missao especial
+**Parar o bot:**
+
+```
+stop
 ```
 
 ---
 
-## Logica de cada modulo
+## PARTE 6 — Multi-Contas
 
-### Batalha normal (battle.sh)
+Se tens mais do que uma conta, podes correr o bot para todas ao mesmo tempo.
 
-O bot vai a `/battle`, faz **9 disparos** (3 inimigos × 3 disparos).
-Cada disparo consome ~30 combustivel — 9 disparos = ~270 no total.
+**Passo 1** — Abre o setup e adiciona cada conta:
 
-Antes de combater, verifica se tem combustivel suficiente (≥270).
-Se nao tiver, salta a batalha e continua com os outros modulos.
+```bash
+./setup.sh
+```
 
-O combustivel regenera: **30 unidades a cada ~7m44s**.
-
-### PvE (pve.sh)
-
-Batalhas historicas que ocorrem a horas fixas.
-O bot verifica `/pve` a cada ciclo — se o botao "Pelotao, ao ataque!"
-estiver disponivel, aplica imediatamente.
-
-Nao usa horarios fixos — detecta dinamicamente.
-Resistente ao horario de verao de Portugal (DST).
-
-Apos o fim de cada batalha, o lobby mostra imediatamente a proxima
-com "0 requerimentos" — o bot aplica logo sem esperar.
-
-### Guerra / Disputa / PvP (cw.sh / dm.sh / pvp.sh)
-
-Estas batalhas **nao consomem combustivel**.
-
-- **Guerra**: detectada dinamicamente quando o botao de entrada aparece
-- **Disputa**: igual — detectada quando disponivel (~11:20, 15:20, 21:20 PT)
-- **PvP**: corre uma vez por dia a `FUNC_pvp_hour` (padrao: 21h)
-
-### Missoes (missions.sh)
-
-Recolhe todas as recompensas disponiveis em `/missions/`.
-Verifica a tab "Simples" e a tab "Complicados".
-Tambem verifica a missao de combate especial (`/xpduel`).
-
-### Base (buildings.sh)
-
-Recolhe a producao dos edificios: Mina, Sala de armas, Banco.
-O Poligono, Mercado e Laboratorio nao tem recolha automatica.
-
-### Escolta (convoy.sh)
-
-Inicia o reconhecimento e recolhe recompensas das missoes da escolta.
-
-### Missao especial (assault.sh)
-
-Entra no primeiro alvo disponivel.
-Se tiver `ASSAULT_MIN_MEMBERS` membros, inicia o combate.
-Nao bloqueia — se nao houver membros suficientes, sai e continua.
+> Repete "2) Adicionar" para cada conta que quiseres.
 
 ---
 
-## Fluxo completo
+**Passo 2** — Inicia todas as contas de uma vez:
 
+```bash
+./play.sh
 ```
-play.sh
-  └── worker.sh (uma por conta, em background)
-        └── wartank.sh (loop infinito)
-              ├── Login
-              ├── Hangar
-              └── Loop principal (wartank_play)
-                    ├── PvP (se for a hora configurada)
-                    ├── _check_battles
-                    │     ├── /cw  → guerra se disponivel
-                    │     ├── /dm  → disputa se disponivel
-                    │     └── /pve → pve se disponivel
-                    └── _maintenance
-                          ├── battle (se combustivel >= 270)
-                          ├── missions (recolha)
-                          ├── buildings (producao)
-                          ├── convoy (escolta)
-                          ├── company (divisao)
-                          └── assault (missao especial)
-```
+
+> O bot lança um worker independente por conta.
+> Cada conta corre em background, completamente separada.
 
 ---
 
-## Logs
-
-Os logs ficam em:
-
-```
-# Single conta
-~/Wartank-Bot/.tmp/bot.log
-
-# Multi-contas
-~/.wartank/USERNAME/bot.log
-```
-
-Para ver em tempo real:
+**Passo 3** — Ver o log de uma conta específica:
 
 ```bash
 tail -f ~/.wartank/USERNAME/bot.log
 ```
 
+> Substitui `USERNAME` pelo nome da conta que queres ver.
+
 ---
 
-## Problemas comuns
+**Parar todas as contas:**
 
-**"Config nao encontrado. A criar..."** em cada ciclo
+```bash
+./stop.sh
+```
 
-O `BOT_DIR` nao esta a ser detectado correctamente.
-Garante que corres o bot sempre a partir da pasta do bot:
+---
+
+## PARTE 7 — Configurações
+
+O ficheiro `config.cfg` é criado automaticamente na primeira execução.
+Podes editá-lo directamente ou usar o comando `config` durante a execução.
+
+**Para abrir o ficheiro de configuração:**
+
+```bash
+nano config.cfg
+```
+
+**O que cada opção faz:**
+
+```
+FUNC_battle=y          → Batalha normal (y=activo, n=desactivo)
+FUNC_missions=y        → Recolha de missões automática
+FUNC_pvp=y             → PvP automático
+FUNC_pvp_hour=21       → Hora do PvP (21 = 21h00)
+FUNC_pve=y             → PvE — batalhas históricas
+FUNC_cw=y              → Guerra de clã
+FUNC_dm=y              → Disputa (Deathmatch)
+FUNC_convoy=y          → Escolta (comboio inimigo)
+FUNC_buildings=y       → Recolha de produção da Base
+FUNC_assault=y         → Missão especial
+FUNC_company=y         → Missões da Divisão
+
+BATTLE_LA=3            → Segundos entre disparos na batalha
+BATTLE_SHOTS=9         → Disparos por sessão (9 = 3 inimigos)
+FUEL_MIN=0             → Combustível mínimo para batalhar
+```
+
+**Depois de editar, guarda com:**
+
+```
+Ctrl + O  →  Enter  →  Ctrl + X
+```
+
+---
+
+## PARTE 8 — Ver Logs
+
+**Ver o log em tempo real (single conta):**
+
+```bash
+tail -f ~/.wartank/USERNAME/bot.log
+```
+
+**Ver as últimas 50 linhas:**
+
+```bash
+tail -50 ~/.wartank/USERNAME/bot.log
+```
+
+**Pesquisar erros no log:**
+
+```bash
+grep "ERRO" ~/.wartank/USERNAME/bot.log
+```
+
+---
+
+## PARTE 9 — Resolver Problemas
+
+---
+
+### O bot pede password ao iniciar (AES)
+
+Apaga o ficheiro de credenciais antigo e volta a adicionar a conta:
+
+```bash
+rm ~/.wartank/USERNAME/cript_file
+```
+
+```bash
+./setup.sh
+```
+
+---
+
+### "Config não encontrado. A criar..." aparece sempre
+
+O bot não está a encontrar a pasta correcta. Garante que entras sempre na pasta antes de iniciar:
 
 ```bash
 cd ~/Wartank-Bot
+```
+
+```bash
 ./play.sh
 ```
 
 ---
 
-**"Login falhou"**
+### O bot não combate
 
-1. Apaga as credenciais antigas: `rm ~/.wartank/USERNAME/cript_file`
-2. Corre `./setup.sh` e adiciona a conta novamente
-3. Ou apaga `.tmp/cript_file` na pasta do bot (single conta)
+Verifica o log para perceber o que está a acontecer:
 
----
+```bash
+tail -50 ~/.wartank/USERNAME/bot.log
+```
 
-**Bot nao combate (sem "[battle] inicio")**
-
-Verifica o log: `tail -f .tmp/bot.log`
-
-Causas possiveis:
+Causas mais comuns:
+- Combustível insuficiente (precisa de 270 para 9 disparos)
 - `FUNC_battle=n` no config.cfg
-- Combustivel insuficiente (< 270)
-- `load_config` a recriar o config — confirma que `BOT_DIR` esta correcto
 
 ---
 
-**Sessao expira frequentemente**
+### A sessão expira com frequência
 
-Normal em conexoes moveis. O bot reconecta automaticamente.
-Se falhar 3 vezes seguidas, para e mostra erro no log.
+É normal em ligações móveis. O bot reconecta automaticamente.
+Se falhar 3 vezes seguidas, para sozinho — volta a iniciar com:
+
+```bash
+./play.sh
+```
 
 ---
 
-## Notas tecnicas
+### Manter o bot a correr com o ecrã desligado
 
-- **Sessao**: jsessionid deve estar na URL E nos cookies (Apache Wicket)
-- **fetch_page**: adiciona jsessionid automaticamente a cada request
-- **Credenciais**: guardadas em base64 com `chmod 600`
-- **Anti-ban**: delay aleatorio de 300-800ms entre cada request
-- **Sem dependencias externas**: apenas `bash`, `curl`, `grep`, `sed`, `awk`, `base64`
+Usa o comando do Termux para manter o processo activo:
+
+```bash
+termux-wake-lock
+```
+
+> Corre este comando antes de `./play.sh`.
+> Assim o Android não suspende o Termux quando o ecrã apagar.
+
+---
+
+## Resumo Rápido
+
+```
+Instalar Termux     → F-Droid
+Actualizar          → pkg update && pkg upgrade
+Instalar curl/bash  → pkg install curl bash grep
+Ir para a pasta     → cd ~/Wartank-Bot
+Permissões          → chmod +x *.sh
+Adicionar conta     → ./setup.sh
+Iniciar             → ./play.sh
+Parar               → stop  ou  ./stop.sh
+Ver log             → tail -f ~/.wartank/USERNAME/bot.log
+```
