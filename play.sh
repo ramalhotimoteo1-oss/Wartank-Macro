@@ -1,30 +1,38 @@
-#!/bin/sh
-# play.sh — arranque com auto-restart v1.2.0
+#!/bin/bash
+# play.sh — Single conta, arranque simples
+# Para multi-contas: usar play_multi.sh (quando o bot estiver estavel)
 
 BOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 MAIN="$BOT_DIR/wartank.sh"
-[ -f "$MAIN" ] || { echo "ERRO: wartank.sh nao encontrado em $BOT_DIR"; exit 1; }
-chmod +x "$MAIN"
 
-graceful_kill() {
-  local pid="$1" w=0
-  kill -TERM "$pid" 2>/dev/null
-  while [ "$w" -lt 15 ]; do
-    kill -0 "$pid" 2>/dev/null || return 0
-    sleep 1; w=$(( w + 1 ))
-  done
-  kill -KILL "$pid" 2>/dev/null
-}
+chmod +x "$BOT_DIR"/*.sh 2>/dev/null
+termux-wake-lock 2>/dev/null
 
+# Verifica se wartank.sh existe
+if [ ! -f "$MAIN" ]; then
+  echo "ERRO: wartank.sh nao encontrado em $BOT_DIR"
+  exit 1
+fi
+
+echo ""
+echo "  Wartank Bot v1.3.0"
+echo "  Pasta: $BOT_DIR"
+echo ""
+
+# Loop com restart automatico
 while true; do
-  old=$(ps ax -o pid=,args= 2>/dev/null \
-    | grep "wartank.sh" | grep -v grep \
-    | head -n1 | grep -o -E '^[[:space:]]*[0-9]+' | tr -d ' ')
-  [ -n "$old" ] && { echo "a encerrar pid $old..."; graceful_kill "$old"; sleep 2s; }
-
-  "$MAIN"
+  bash "$MAIN"
   code=$?
-  [ "$code" -eq 0 ] && { echo "bot parado pelo utilizador"; break; }
-  echo "bot terminou (cod $code), a reiniciar em 5s..."
-  sleep 5s
+
+  # Saida intencional
+  if [ "$code" -eq 0 ]; then
+    echo ""
+    echo "  Bot parado."
+    break
+  fi
+
+  echo ""
+  echo "  Bot encerrou (cod $code). A reiniciar em 10s..."
+  echo "  Ctrl+C para cancelar."
+  sleep 10
 done
