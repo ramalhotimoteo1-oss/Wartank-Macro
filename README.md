@@ -1,4 +1,4 @@
-# Wartank Bot v1.3.0
+# Wartank-Bot Beta
 
 Bot automático para wartank-pt.net — funciona no Android via Termux.
 
@@ -372,5 +372,7 @@ git clone https://github.com/ramalhotimoteo1-oss/Wartank-Macro.git
 | Iniciar | `./play.sh` |
 | Parar | escreve `stop` |
 | Ver log | `tail -f .tmp/bot.log` |
+
+> Doações: ramirosh015@gmail.com
 | Wake lock | `termux-wake-lock` |
 | Actualizar bot | `git pull` |
