@@ -1,9 +1,6 @@
 #!/bin/bash
-# hangar.sh — v1.4.0
-# Fix: clear antes do display, potencia do tanque, interface limpa
-
-# Tempo da ultima batalha (para gerir combustivel)
-LAST_BATTLE_TIME=0
+# hangar.sh — v1.5.0
+# Fix: patente adicionada, painel mais organizado
 
 go_hangar() {
   fetch_page "/angar"
@@ -14,7 +11,7 @@ go_hangar() {
   fi
 
   if grep -q 'showSigninLink\|IFormSubmitListener-loginForm' "$SRC" 2>/dev/null; then
-    echo "[hangar] sessao perdida — a reconectar"
+    echo "[hangar] sessao perdida"
     _do_login
     fetch_page "/angar"
     _parse_hangar_info
@@ -24,31 +21,29 @@ go_hangar() {
 }
 
 _parse_hangar_info() {
-  # Combustivel
-  FUEL_CURRENT=$(grep -o -E 'fuel\.png[^/]*/>[^0-9]*[0-9]+' "$SRC" \
-    | grep -o -E '[0-9]+$' | head -n1)
-
-  # Ouro
-  GOLD=$(grep -o -E 'gold\.png[^/]*/>[^0-9]*[0-9]+' "$SRC" \
-    | grep -o -E '[0-9]+$' | head -n1)
-
-  # Prata
-  SILVER=$(grep -o -E 'silver\.png[^/]*/>[^0-9]*[0-9]+' "$SRC" \
-    | grep -o -E '[0-9]+$' | head -n1)
-
-  # Nivel e ID (do jsInterface)
-  PLAYER_LEVEL=$(grep -o -E 'level=[0-9]+' "$SRC" | grep -o -E '[0-9]+' | head -n1)
-  PLAYER_ID=$(grep -o -E 'user=[0-9]+' "$SRC" | grep -o -E '[0-9]+' | head -n1)
-
-  # Potencia do tanque — extraida do HTML do hangar
-  # HTML: <span class="green2">Potência de tanque: 4788</span>
+  FUEL_CURRENT=$(grep -A1 'title="Combustível"' "$SRC" \
+    | grep -o -E '[0-9]+' | head -n1)
+  GOLD=$(grep -A1 'title="Ouro"' "$SRC" \
+    | grep -o -E '[0-9]+' | head -n1)
+  SILVER=$(grep -A1 'title="Prata"' "$SRC" \
+    | grep -o -E '[0-9]+' | head -n1)
+  PLAYER_LEVEL=$(grep -o -E 'level=[0-9]+' "$SRC" \
+    | grep -o -E '[0-9]+' | head -n1)
+  PLAYER_ID=$(grep -o -E 'user=[0-9]+' "$SRC" \
+    | grep -o -E '[0-9]+' | head -n1)
   TANK_POWER=$(grep -o -E 'Potência de tanque: [0-9]+' "$SRC" \
     | grep -o -E '[0-9]+' | head -n1)
+  XP_PCT=$(grep -o -E '"scale" style="width:[0-9]+' "$SRC" \
+    | grep -o -E '[0-9]+$' | head -n1)
 
-  # Experiencia da barra de nivel
-  # HTML: <div class="scale" style="width:29%;">
-  XP_PCT=$(grep -o -E 'width:[0-9]+%' "$SRC" \
-    | grep -o -E '[0-9]+' | head -n1)
+  # Patente — extraida do perfil/hangar
+  # HTML: class="rank">general</span> ou similar
+  PLAYER_RANK=$(grep -o -E 'class="(leader|general|officer|soldier|newbie|rank)[^>]*>[^<]+' \
+    "$SRC" | sed 's/.*">//;s/<.*//' | head -n1)
+  # Fallback: busca por texto de patente comum
+  [ -z "$PLAYER_RANK" ] && \
+    PLAYER_RANK=$(grep -o -E '(general|comandante|oficial|soldado|novato)' \
+      "$SRC" | head -n1)
 
   _display_status
 }
@@ -58,21 +53,25 @@ _display_status() {
   printf -v h '%(%H)T' -1
   printf -v m '%(%M)T' -1
 
-  # FIX: clear para nao acumular texto no terminal
   clear
 
   echo ""
-  echo "  wartank-pt.net | ${h}:${m}"
-  echo "  ─────────────────────────────────────────"
-  printf "  %-20s Nv.%-4s ID: %s\n" \
-    "${ACC:-Jogador}" "${PLAYER_LEVEL:-?}" "${PLAYER_ID:-?}"
-  echo "  ─────────────────────────────────────────"
-  printf "  Combustivel: %-8s Potencia: %s\n" \
-    "${FUEL_CURRENT:-?}" "${TANK_POWER:-?}"
-  printf "  Ouro:        %-8s Prata: %s\n" \
-    "${GOLD:-?}" "${SILVER:-?}"
-  [ -n "$XP_PCT" ] && printf "  Exp:         %s%%\n" "$XP_PCT"
-  echo "  ─────────────────────────────────────────"
+  echo "  ┌─────────────────────────────────────────┐"
+  printf "  │  %-38s│\n" "wartank-pt.net  |  ${h}:${m}"
+  echo "  ├─────────────────────────────────────────┤"
+  printf "  │  %-38s│\n" "${ACC:-Jogador}"
+  printf "  │  Nivel: %-5s  ID: %-20s│\n" \
+    "${PLAYER_LEVEL:-?}" "${PLAYER_ID:-?}"
+  [ -n "$PLAYER_RANK" ] && \
+    printf "  │  Patente: %-31s│\n" "${PLAYER_RANK}"
+  [ -n "$XP_PCT" ] && \
+    printf "  │  Exp: %s%%%-34s│\n" "${XP_PCT}" ""
+  echo "  ├─────────────────────────────────────────┤"
+  printf "  │  Combustivel: %-26s│\n" "${FUEL_CURRENT:-?}"
+  printf "  │  Potencia:    %-26s│\n" "${TANK_POWER:-?}"
+  printf "  │  Ouro:        %-26s│\n" "${GOLD:-?}"
+  printf "  │  Prata:       %-26s│\n" "${SILVER:-?}"
+  echo "  └─────────────────────────────────────────┘"
   echo ""
 }
 
