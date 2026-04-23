@@ -1,179 +1,163 @@
 #!/bin/bash
-# ============================================================
-# dm.sh — Disputa (Deathmatch)
-# HTML real confirmado — lobby e batalha activa
-# ============================================================
-# Lobby (/dm):
-#   Título: "Combate" (partilhado com /battle)
-#   Próxima: href="dm?14-1.ILinkListener-currentOverview-apply"
-#   Botão: "Cada um por si!"
-#   Refresh: href="dm?14-1.ILinkListener-refresh"
-#   Horários: ~11:20, ~15:20, ~21:20 (podem variar com DST)
-#
-# Batalha activa:
-#   Links: dm?16-53.ILinkListener-currentControl-buttons-X
-#     attackRegularShellLink  → SIMPLES
-#     attackSpecialShellLink  → PERFURANTES (4088)
-#     repairLink              → kit de reparação
-#     maneuverLink            → Manobra
-#     changeTargetLink        → Mudar de objetivo
-#     escape                  → Abandonar o combate
-#   Info: "de Tanques no combate: 21"
-#
-# FLUXO:
-#   apply → "Preparando Combate" (6s countdown) → batalha inicia
-#   Bot não usa horários fixos — verifica apply dinamicamente
-# ============================================================
+# dm.sh — Disputa (Deathmatch) v1.4.0
+# Fix:
+#   - Tempo entre disparos: 6 segundos (tempo real do jogo)
+#   - Kit de Reparacao: usa quando HP < 50% (nao so manobra)
+#   - Prioridade: repair > disparo (para sobreviver)
 
-# ── Verifica e aplica em DM se disponível ───────────────────
 dm_check_and_apply() {
-  if [ "$FUNC_dm" = "n" ]; then return; fi
+  [ "$FUNC_dm" = "n" ] && return 0
 
   fetch_page "/dm"
   if ! _session_active; then return; fi
 
-  # Batalha já activa?
+  # Batalha ja activa?
   if grep -q 'currentControl-buttons-attackRegularShellLink' "$SRC" 2>/dev/null; then
-    echo_t "DM: Batalha activa detectada!" "$GOLD_BLACK" "$COLOR_RESET"
+    echo "[dm] batalha activa"
     _dm_fight_active
     return
   fi
 
-  # Link de aplicar disponível?
+  # Botao de aplicar?
   local apply_link
-  apply_link=$(grep -o -E 'dm\?[0-9]+-[0-9]+\.ILinkListener-currentOverview-apply' \
+  apply_link=$(grep -o -E \
+    'dm\?[0-9]+-[0-9]+\.ILinkListener-currentOverview-apply' \
     "$SRC" | head -n1)
 
   if [ -n "$apply_link" ]; then
     local next_time
-    next_time=$(grep -o -E 'até o início [0-9]{2}:[0-9]{2}:[0-9]{2}' "$SRC" | head -n1)
-    echo_t "DM: A aplicar... ${next_time:-}" "$GOLD_BLACK" "$COLOR_RESET"
-    fetch_page "/${apply_link}"
+    next_time=$(grep -o -E 'ate o inicio [0-9]{2}:[0-9]{2}:[0-9]{2}' "$SRC" | head -n1)
+    echo "[dm] a aplicar... $next_time"
+    fetch_page "$apply_link"
     sleep_rand 500 1000
-    _dm_wait_battle_start
+    _dm_wait_start
   fi
 }
 
 dm_mode() {
-  if [ "$FUNC_dm" = "n" ]; then return; fi
+  [ "$FUNC_dm" = "n" ] && return 0
   dm_check_and_apply
 }
 
-# ── Aguarda ecrã "Preparando Combate" (6s) → inicia ─────────
-_dm_wait_battle_start() {
+_dm_wait_start() {
   local timeout=$(( $(date +%s) + 30 ))
-  echo_t "   Preparando combate DM (6s)..." "$GRAY_BLACK" "$COLOR_RESET"
-
+  echo "[dm] a aguardar inicio (6s)..."
   while [ "$(date +%s)" -lt "$timeout" ]; do
-    if grep -q 'currentControl-buttons-attackRegularShellLink' "$SRC" 2>/dev/null; then
-      echo_t "  [dm] Batalha DM iniciada!" "$GREEN_BLACK" "$COLOR_RESET"
+    grep -q 'currentControl-buttons-attackRegularShellLink' "$SRC" 2>/dev/null && {
+      echo "[dm] batalha iniciada"
       _dm_fight_active
       return
-    fi
-
-    local refresh_link
-    refresh_link=$(grep -o -E 'dm\?[0-9]+-[0-9]+\.ILinkListener-[^"]*refresh[^"]*' \
+    }
+    local ref
+    ref=$(grep -o -E 'dm\?[0-9]+-[0-9]+\.ILinkListener-[^"]*refresh[^"]*' \
       "$SRC" | head -n1)
-    [ -n "$refresh_link" ] && fetch_page "/${refresh_link}" || fetch_page "/dm"
+    [ -n "$ref" ] && fetch_page "$ref" || fetch_page "/dm"
     sleep_rand 2000 3000
   done
-
-  echo_t "  Timeout a aguardar DM." "$BLACK_YELLOW" "$COLOR_RESET"
+  echo "[dm] timeout a aguardar"
 }
 
-# ── Extrai links de combate DM ───────────────────────────────
 _dm_extract() {
-  # Padrão real: dm?16-53.ILinkListener-currentControl-buttons-X
-  DM_ATK=$(grep -o -E 'dm\?[0-9]+-[0-9]+\.ILinkListener-currentControl-buttons-attackRegularShellLink' \
+  DM_ATK=$(grep -o -E \
+    'dm\?[0-9]+-[0-9]+\.ILinkListener-currentControl-buttons-attackRegularShellLink' \
     "$SRC" | head -n1)
-  DM_ATK_SPECIAL=$(grep -o -E 'dm\?[0-9]+-[0-9]+\.ILinkListener-currentControl-buttons-attackSpecialShellLink' \
+  DM_ATK_SP=$(grep -o -E \
+    'dm\?[0-9]+-[0-9]+\.ILinkListener-currentControl-buttons-attackSpecialShellLink' \
     "$SRC" | head -n1)
-  DM_REPAIR=$(grep -o -E 'dm\?[0-9]+-[0-9]+\.ILinkListener-currentControl-buttons-repairLink' \
+  DM_REPAIR=$(grep -o -E \
+    'dm\?[0-9]+-[0-9]+\.ILinkListener-currentControl-buttons-repairLink' \
     "$SRC" | head -n1)
-  DM_MANEUVER=$(grep -o -E 'dm\?[0-9]+-[0-9]+\.ILinkListener-currentControl-buttons-maneuverLink' \
+  DM_MANEUVER=$(grep -o -E \
+    'dm\?[0-9]+-[0-9]+\.ILinkListener-currentControl-buttons-maneuverLink' \
     "$SRC" | head -n1)
-  DM_CHANGE=$(grep -o -E 'dm\?[0-9]+-[0-9]+\.ILinkListener-currentControl-buttons-changeTargetLink' \
-    "$SRC" | head -n1)
-  DM_ESCAPE=$(grep -o -E 'dm\?[0-9]+-[0-9]+\.ILinkListener-currentControl-escape' \
+  DM_ESCAPE=$(grep -o -E \
+    'dm\?[0-9]+-[0-9]+\.ILinkListener-currentControl-escape' \
     "$SRC" | head -n1)
 
-  # HP
-  DM_HP_PLAYER=$(grep -o -E 'value-block lh1[^>]*>[^<]*<[^>]*>[^<]*>[0-9]+' "$SRC" \
+  # HP do jogador (1o value-block) e inimigo (2o value-block)
+  DM_HP_PLAYER=$(grep -o -E \
+    'value-block lh1[^>]*>[^<]*<[^>]*>[^<]*>[0-9]+' "$SRC" \
     | grep -o -E '[0-9]+$' | sed -n '1p')
-  DM_HP_ENEMY=$(grep -o -E 'value-block lh1[^>]*>[^<]*<[^>]*>[^<]*>[0-9]+' "$SRC" \
+  DM_HP_ENEMY=$(grep -o -E \
+    'value-block lh1[^>]*>[^<]*<[^>]*>[^<]*>[0-9]+' "$SRC" \
     | grep -o -E '[0-9]+$' | sed -n '2p')
-
-  DM_TANKS=$(grep -o -E 'de Tanques no combate: [0-9]+' "$SRC" | grep -o -E '[0-9]+' | head -n1)
+  DM_HP_MAX="${DM_HP_MAX:-$DM_HP_PLAYER}"
 }
 
-# ── Loop de combate DM ───────────────────────────────────────
 _dm_fight_active() {
   _dm_extract
+  DM_HP_MAX="${DM_HP_PLAYER:-2846}"
 
-  local hp_max="${DM_HP_PLAYER:-0}"
+  local timeout=$(( $(date +%s) + 600 ))
+  local shots=0
+  local last_atk=0
   local last_repair=0
   local last_maneuver=0
-  local last_atk=0
-  local shots=0
-  local timeout=$(( $(date +%s) + 600 ))
 
-  echo_t "  [dm] DM — HP: ${DM_HP_PLAYER:-?} vs ${DM_HP_ENEMY:-?} | Tanques: ${DM_TANKS:-?}" \
-    "$GOLD_BLACK" "$COLOR_RESET"
+  # FIX: 6 segundos entre disparos (tempo real do jogo)
+  local dm_reload=6
+
+  echo "[dm] HP: ${DM_HP_PLAYER:-?}/${DM_HP_MAX} vs ${DM_HP_ENEMY:-?}"
 
   while [ "$(date +%s)" -lt "$timeout" ]; do
+    _session_active || { echo "[dm] sessao perdida"; break; }
     _dm_extract
 
-    # Batalha terminou?
-    if [ -z "$DM_ATK" ] && [ -z "$DM_ESCAPE" ]; then
-      echo_t "  🏁 DM terminou." "$GREEN_BLACK" "$COLOR_RESET"
+    # Fim da batalha
+    [ -z "$DM_ATK" ] && [ -z "$DM_ESCAPE" ] && {
+      echo "[dm] batalha terminou ($shots disparos)"
       break
-    fi
+    }
 
-    local now since_atk since_repair since_maneuver
-    now=$(date +%s)
-    since_atk=$(( now - last_atk ))
-    since_repair=$(( now - last_repair ))
-    since_maneuver=$(( now - last_maneuver ))
+    local now=$(date +%s)
+    local since_repair=$(( now - last_repair ))
+    local since_maneuver=$(( now - last_maneuver ))
+    local since_atk=$(( now - last_atk ))
 
-    # ── Repair ────────────────────────────────────────────────
-    if [ -n "$DM_REPAIR" ] && [ -n "$DM_HP_PLAYER" ] && [ "$hp_max" -gt 0 ]; then
+    # ── REPAIR: prioridade maxima ─────────────────────────────
+    # FIX: usa repair quando HP < 50% (antes era so manobra)
+    if [ -n "$DM_REPAIR" ] && [ -n "$DM_HP_PLAYER" ] && [ "$DM_HP_MAX" -gt 0 ] \
+       2>/dev/null; then
       local hp_pct
-      hp_pct=$(awk -v n="$DM_HP_PLAYER" -v m="$hp_max" \
-        'BEGIN{printf"%.0f",n/m*100}')
-      if [ "$hp_pct" -le "${BATTLE_REPAIR_PCT:-30}" ] && \
-         [ "$since_repair" -ge "${BATTLE_REPAIR_CD:-90}" ]; then
-        echo_t "   DM Repair! HP: ${DM_HP_PLAYER} (${hp_pct}%)" "$BLACK_YELLOW" "$COLOR_RESET"
-        fetch_page "/${DM_REPAIR}"
+      hp_pct=$(awk -v n="$DM_HP_PLAYER" -v m="$DM_HP_MAX" \
+        'BEGIN{printf"%.0f",n/m*100}' 2>/dev/null)
+      if [ -n "$hp_pct" ] && [ "$hp_pct" -le 50 ] && \
+         [ "$since_repair" -ge 90 ] 2>/dev/null; then
+        echo "[dm] REPAIR HP: ${DM_HP_PLAYER} (${hp_pct}%)"
+        fetch_page "$DM_REPAIR"
         last_repair=$now
-        _dm_extract
+        DM_HP_MAX="$DM_HP_PLAYER"  # actualiza max apos repair
+        sleep_rand 500 800
         continue
       fi
     fi
 
-    # ── Manobra ───────────────────────────────────────────────
-    if [ -n "$DM_MANEUVER" ] && [ "$since_maneuver" -ge "${BATTLE_MANEUVER_CD:-20}" ]; then
-      if grep -q 'disparou a\|danos' "$SRC" 2>/dev/null; then
-        echo_t "  [divisao] DM Manobra!" "$BLUE_BLACK" "$COLOR_RESET"
-        fetch_page "/${DM_MANEUVER}"
+    # ── MANOBRA: usa apos sofrer dano ──────────────────────────
+    if [ -n "$DM_MANEUVER" ] && [ "$since_maneuver" -ge 20 ] 2>/dev/null; then
+      if grep -q 'disparou a\|causou danos\|danos' "$SRC" 2>/dev/null; then
+        echo "[dm] manobra"
+        fetch_page "$DM_MANEUVER"
         last_maneuver=$now
-        _dm_extract
+        sleep_rand 300 500
         continue
       fi
     fi
 
-    # ── Disparo ───────────────────────────────────────────────
-    if [ -n "$DM_ATK" ] && [ "$since_atk" -ge "${BATTLE_LA:-3}" ]; then
-      fetch_page "/${DM_ATK}"
-      last_atk=$now
+    # ── DISPARO: a cada 6 segundos ────────────────────────────
+    if [ -n "$DM_ATK" ] && [ "$since_atk" -ge "$dm_reload" ] 2>/dev/null; then
+      fetch_page "$DM_ATK"
+      last_atk=$(date +%s)
       shots=$(( shots + 1 ))
       _dm_extract
-      echo_t "  [dm] DM #${shots} | HP: ${DM_HP_PLAYER:-?} vs ${DM_HP_ENEMY:-?}" \
-        "$GRAY_BLACK" "$COLOR_RESET"
+      echo "[dm] #${shots} | HP: ${DM_HP_PLAYER:-?}/${DM_HP_MAX} vs ${DM_HP_ENEMY:-?}"
     else
-      sleep_rand 800 1500
+      # Espera o tempo restante ate proximo disparo
+      local wait_rem=$(( dm_reload - since_atk ))
+      [ "$wait_rem" -gt 0 ] && sleep "${wait_rem}s" || sleep 1s
     fi
+
   done
 
-  echo_t "DM: ${shots} disparos." "$GREEN_BLACK" "$COLOR_RESET"
+  echo "[dm] fim: $shots disparos"
   go_hangar
 }
