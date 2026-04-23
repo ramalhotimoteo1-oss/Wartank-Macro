@@ -1,42 +1,33 @@
 #!/bin/bash
-# pve.sh — PvE (Batalhas Historicas) v1.3.0
-# HTML real confirmado via docx
+# pve.sh — PvE (Batalhas Historicas) v2.0.0
+# HTML real confirmado:
 #
 # LOBBY (/pve):
 #   titulo: "Batalhas"
-#   apply:   pve?X-X.ILinkListener-currentOverview-apply  → "Pelotao, ao ataque!"
+#   apply:   pve?X-X.ILinkListener-currentOverview-apply
 #   refresh: pve?X-X.ILinkListener-refresh
-#   "ate o inicio HH:MM:SS (N requerimentos)"
-#   apos fim: lobby aparece imediatamente com "0 requerimentos" e novo apply
 #
-# DENTRO DA BATALHA (/pve com currentControl):
+# COMBATE ACTIVO:
 #   titulo: "Batalhas" (igual ao lobby — detectar por currentControl)
-#   disparo: pve?X-X.ILinkListener-currentControl-attackRegularShellLink
-#   especial: pve?X-X.ILinkListener-currentControl-attackSpecialShellLink
-#   repair:   pve?X-X.ILinkListener-currentControl-repairLink
-#   manobra:  pve?X-X.ILinkListener-currentControl-maneuverLink
-#   alvo:     pve?X-X.ILinkListener-currentControl-changeTargetLink
-#   sair:     pve?X-X.ILinkListener-currentControl-escape
-#   HP jogador (verde, class green1): value-block lh1 → 1472
-#   HP inimigo (vermelho, class red1): value-block lh1 → 2458
-#   Info: "dos Tanques no combate: 15"
-#   Reload: 6s entre disparos para 100% da capacidade
-#
-# TIMING:
-#   Deteccao dinamica — verifica apply a cada ciclo
-#   Nao usa horarios fixos (resistente ao DST Portugal)
-#   Apos fim: lobby tem novo apply imediatamente → aplica logo
+#   atk:    pve?6-32.ILinkListener-currentControl-attackRegularShellLink
+#   repair: pve?6-32.ILinkListener-currentControl-repairLink
+#   maneuver: pve?6-32.ILinkListener-currentControl-maneuverLink
+#   change: pve?6-32.ILinkListener-currentControl-changeTargetLink
+#   escape: pve?6-32.ILinkListener-currentControl-escape
+#   HP jogador (class green1): value-block lh1 → 3029
+#   HP inimigo (class red1):   value-block lh1 → 3136
+#   Dano recebido: "A explosão do projetíl da artilharia causou-lhe danos 107"
+#   Reload: 6 segundos entre disparos
 
-# ── Verifica e aplica em PvE ─────────────────────────────────
 pve_check_and_apply() {
   [ "$FUNC_pve" = "n" ] && return 0
 
   fetch_page "/pve"
   if ! _session_active; then return; fi
 
-  # Batalha ja activa?
+  # Batalha activa? (detect por currentControl)
   if grep -q 'currentControl-attackRegularShellLink' "$SRC" 2>/dev/null; then
-    echo "[pve] batalha activa — a combater"
+    echo "[pve] batalha activa"
     _pve_fight
     return
   fi
@@ -55,11 +46,9 @@ pve_check_and_apply() {
     echo "[pve] a aplicar: ${battle_name:-batalha} ${wait_time}"
     fetch_page "$apply_link"
     sleep_rand 500 1000
-    # Verifica se entrou na batalha
-    if grep -q 'currentControl-attackRegularShellLink' "$SRC" 2>/dev/null; then
-      echo "[pve] batalha iniciada"
+    # Verifica se ja entrou em combate
+    grep -q 'currentControl-attackRegularShellLink' "$SRC" 2>/dev/null && \
       _pve_fight
-    fi
   fi
 }
 
@@ -68,25 +57,24 @@ pve_mode() {
   pve_check_and_apply
 }
 
-# ── Loop de combate PvE ──────────────────────────────────────
 _pve_fight() {
   local timeout=$(( $(date +%s) + ${PVE_TIMEOUT:-600} ))
-  local _pve_last_repair=0
-  local _pve_hp_max=""
   local shots=0
   local last_atk=0
-  local reload="${PVE_RELOAD:-6}"  # 6s = 100% capacidade
+  local last_repair=0
+  local last_maneuver=0
+  local hp_max=""
+  local reload=6  # 6 segundos (confirmado)
 
   echo "[pve] combate iniciado"
 
   while [ "$(date +%s)" -lt "$timeout" ]; do
-
     _session_active || { echo "[pve] sessao perdida"; break; }
 
-    # Fim da batalha — lobby aparece sem currentControl
+    # Fim da batalha — sem currentControl volta ao lobby
     if ! grep -q 'currentControl-' "$SRC" 2>/dev/null; then
-      echo "[pve] batalha terminou"
-      # Lobby ja tem novo apply — aplica imediatamente
+      echo "[pve] batalha terminou ($shots disparos)"
+      # Lobby pode ter nova batalha disponivel
       local next_apply
       next_apply=$(grep -o -E \
         'pve\?[0-9]+-[0-9]+\.ILinkListener-currentOverview-apply' \
@@ -95,59 +83,78 @@ _pve_fight() {
         echo "[pve] nova batalha disponivel — a aplicar"
         fetch_page "$next_apply"
         sleep_rand 500 1000
-        # Se entrou numa nova batalha continua o loop
         grep -q 'currentControl-attackRegularShellLink' "$SRC" 2>/dev/null || break
         shots=0
+        hp_max=""
         continue
       fi
       break
     fi
 
-    # Extrai links de combate
-    local atk atk_special repair maneuver change_target
+    # Extrai links — padrao real confirmado
+    local atk repair maneuver
     atk=$(grep -o -E \
       'pve\?[0-9]+-[0-9]+\.ILinkListener-currentControl-attackRegularShellLink' \
-      "$SRC" | head -n1)
-    atk_special=$(grep -o -E \
-      'pve\?[0-9]+-[0-9]+\.ILinkListener-currentControl-attackSpecialShellLink' \
       "$SRC" | head -n1)
     repair=$(grep -o -E \
       'pve\?[0-9]+-[0-9]+\.ILinkListener-currentControl-repairLink' \
       "$SRC" | head -n1)
+    maneuver=$(grep -o -E \
+      'pve\?[0-9]+-[0-9]+\.ILinkListener-currentControl-maneuverLink' \
+      "$SRC" | head -n1)
 
-    # HP do jogador (class green1, primeiro value-block)
-    local hp_player
-    hp_player=$(grep -A3 'green1' "$SRC" 2>/dev/null \
-      | grep -o -E 'value-block lh1[^>]*>[^<]*<[^>]*>[^<]*>[0-9]+' \
-      | grep -o -E '[0-9]+$' | head -n1)
+    # HP jogador (class green1 = jogador no PvE)
+    # Extrai o value-block que vem apos "green1"
+    local hp_now
+    hp_now=$(grep -B1 'value-block lh1' "$SRC" 2>/dev/null \
+      | grep -A1 'green1' \
+      | grep -o -E '[0-9]+' | tail -n1)
+    # Fallback: primeiro value-block
+    [ -z "$hp_now" ] && \
+      hp_now=$(grep -o -E 'value-block lh1[^>]*>[^<]*<[^>]*>[^<]*>[0-9]+' "$SRC" \
+        | grep -o -E '[0-9]+$' | sed -n '1p')
 
-    # Repair se HP baixo
-    local _pve_hp_pct _pve_since_repair
-    _pve_since_repair=$(( $(date +%s) - ${_pve_last_repair:-0} ))
-    _pve_hp_pct=$(awk -v n="${hp_player:-0}" -v m="${_pve_hp_max:-1}"       'BEGIN{if(m>0)printf"%.0f",n/m*100;else print 100}' 2>/dev/null)
-    if [ -n "$repair" ] && [ "${_pve_hp_pct:-100}" -le 50 ] &&        [ "$_pve_since_repair" -ge 90 ] 2>/dev/null; then
-      echo "[pve] REPAIR HP: ${hp_player} (${_pve_hp_pct}%)"
-      fetch_page "$repair"
-      _pve_last_repair=$(date +%s)
-      [ -z "$_pve_hp_max" ] && _pve_hp_max="$hp_player"
-      sleep_rand 500 800
-      continue
+    [ -z "$hp_max" ] && hp_max="${hp_now:-0}"
+
+    local now=$(date +%s)
+    local since_repair=$(( now - last_repair ))
+    local since_maneuver=$(( now - last_maneuver ))
+    local since_atk=$(( now - last_atk ))
+
+    # ── REPAIR a 50% HP ───────────────────────────────────────
+    if [ -n "$repair" ] && [ -n "$hp_now" ] && [ "${hp_max:-0}" -gt 0 ] \
+       && [ "$since_repair" -ge 90 ] 2>/dev/null; then
+      local hp_pct
+      hp_pct=$(awk -v n="$hp_now" -v m="$hp_max" \
+        'BEGIN{printf"%.0f",n/m*100}' 2>/dev/null)
+      if [ -n "$hp_pct" ] && [ "$hp_pct" -le 50 ] 2>/dev/null; then
+        echo "[pve] REPAIR HP: $hp_now (${hp_pct}%)"
+        fetch_page "$repair"
+        last_repair=$now
+        sleep_rand 300 500
+        continue
+      fi
     fi
 
-    # Aguarda reload de 6s
-    local now elapsed
-    now=$(date +%s)
-    elapsed=$(( now - last_atk ))
-    if [ "$elapsed" -lt "$reload" ]; then
-      sleep $(( reload - elapsed ))s
+    # ── MANOBRA apos dano ──────────────────────────────────────
+    if [ -n "$maneuver" ] && [ "$since_maneuver" -ge 20 ] 2>/dev/null; then
+      if grep -q 'causou-lhe danos\|causou danos' "$SRC" 2>/dev/null; then
+        echo "[pve] manobra"
+        fetch_page "$maneuver"
+        last_maneuver=$now
+        sleep_rand 300 500
+        continue
+      fi
     fi
 
-    # Disparo
-    if [ -n "$atk" ]; then
+    # ── DISPARO: 6 segundos de intervalo ──────────────────────
+    if [ -n "$atk" ] 2>/dev/null; then
+      local wait_rem=$(( reload - since_atk ))
+      [ "$wait_rem" -gt 0 ] && sleep "${wait_rem}s"
       fetch_page "$atk"
       last_atk=$(date +%s)
       shots=$(( shots + 1 ))
-      echo "[pve] disparo $shots | HP: ${hp_player:-?}"
+      echo "[pve] #${shots} | HP: ${hp_now:-?}/${hp_max:-?}"
     else
       sleep 1s
     fi
