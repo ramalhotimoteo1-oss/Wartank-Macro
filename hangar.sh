@@ -1,10 +1,4 @@
-#!/bin/bash
-# hangar.sh — v1.5.0
-# Fix: patente adicionada, painel mais organizado
-
-go_hangar() {
-  fetch_page "/angar"
-
+#!/bin/bash                                           # hangar.sh — v1.5.0                                  # Fix: patente adicionada, painel mais organizado                                                           go_hangar() {                                           fetch_page "/angar"                                 
   if grep -q '<title>Hangar</title>' "$SRC" 2>/dev/null; then
     _parse_hangar_info
     return 0
