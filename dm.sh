@@ -1,9 +1,15 @@
 #!/bin/bash
-# dm.sh — Disputa (Deathmatch) v1.4.0
-# Fix:
-#   - Tempo entre disparos: 6 segundos (tempo real do jogo)
-#   - Kit de Reparacao: usa quando HP < 50% (nao so manobra)
-#   - Prioridade: repair > disparo (para sobreviver)
+# dm.sh — Disputa (Deathmatch) v2.0.0
+# HTML real confirmado:
+#   titulo: "Combate"
+#   atk:    dm?3-28.ILinkListener-currentControl-buttons-attackRegularShellLink
+#   repair: dm?3-28.ILinkListener-currentControl-buttons-repairLink
+#   maneuver: dm?3-28.ILinkListener-currentControl-buttons-maneuverLink
+#   change: dm?3-28.ILinkListener-currentControl-buttons-changeTargetLink
+#   escape: dm?3-28.ILinkListener-currentControl-escape
+#   HP jogador (vermelho, class red1): value-block lh1 → 3136
+#   HP inimigo: value-block lh1 → 2698
+#   Reload: 6 segundos entre disparos
 
 dm_check_and_apply() {
   [ "$FUNC_dm" = "n" ] && return 0
@@ -11,10 +17,10 @@ dm_check_and_apply() {
   fetch_page "/dm"
   if ! _session_active; then return; fi
 
-  # Batalha ja activa?
+  # Batalha activa?
   if grep -q 'currentControl-buttons-attackRegularShellLink' "$SRC" 2>/dev/null; then
     echo "[dm] batalha activa"
-    _dm_fight_active
+    _dm_fight
     return
   fi
 
@@ -30,6 +36,7 @@ dm_check_and_apply() {
     echo "[dm] a aplicar... $next_time"
     fetch_page "$apply_link"
     sleep_rand 500 1000
+    # Aguarda os 6s de preparacao
     _dm_wait_start
   fi
 }
@@ -45,11 +52,12 @@ _dm_wait_start() {
   while [ "$(date +%s)" -lt "$timeout" ]; do
     grep -q 'currentControl-buttons-attackRegularShellLink' "$SRC" 2>/dev/null && {
       echo "[dm] batalha iniciada"
-      _dm_fight_active
+      _dm_fight
       return
     }
     local ref
-    ref=$(grep -o -E 'dm\?[0-9]+-[0-9]+\.ILinkListener-[^"]*refresh[^"]*' \
+    ref=$(grep -o -E \
+      'dm\?[0-9]+-[0-9]+\.ILinkListener-[^"]*refresh[^"]*' \
       "$SRC" | head -n1)
     [ -n "$ref" ] && fetch_page "$ref" || fetch_page "/dm"
     sleep_rand 2000 3000
@@ -57,103 +65,102 @@ _dm_wait_start() {
   echo "[dm] timeout a aguardar"
 }
 
-_dm_extract() {
-  DM_ATK=$(grep -o -E \
-    'dm\?[0-9]+-[0-9]+\.ILinkListener-currentControl-buttons-attackRegularShellLink' \
-    "$SRC" | head -n1)
-  DM_ATK_SP=$(grep -o -E \
-    'dm\?[0-9]+-[0-9]+\.ILinkListener-currentControl-buttons-attackSpecialShellLink' \
-    "$SRC" | head -n1)
-  DM_REPAIR=$(grep -o -E \
-    'dm\?[0-9]+-[0-9]+\.ILinkListener-currentControl-buttons-repairLink' \
-    "$SRC" | head -n1)
-  DM_MANEUVER=$(grep -o -E \
-    'dm\?[0-9]+-[0-9]+\.ILinkListener-currentControl-buttons-maneuverLink' \
-    "$SRC" | head -n1)
-  DM_ESCAPE=$(grep -o -E \
-    'dm\?[0-9]+-[0-9]+\.ILinkListener-currentControl-escape' \
-    "$SRC" | head -n1)
-
-  # HP do jogador (1o value-block) e inimigo (2o value-block)
-  DM_HP_PLAYER=$(grep -o -E \
-    'value-block lh1[^>]*>[^<]*<[^>]*>[^<]*>[0-9]+' "$SRC" \
-    | grep -o -E '[0-9]+$' | sed -n '1p')
-  DM_HP_ENEMY=$(grep -o -E \
-    'value-block lh1[^>]*>[^<]*<[^>]*>[^<]*>[0-9]+' "$SRC" \
-    | grep -o -E '[0-9]+$' | sed -n '2p')
-  DM_HP_MAX="${DM_HP_MAX:-$DM_HP_PLAYER}"
-}
-
-_dm_fight_active() {
-  _dm_extract
-  DM_HP_MAX="${DM_HP_PLAYER:-2846}"
-
-  local timeout=$(( $(date +%s) + 600 ))
-  local shots=0
-  local last_atk=0
+_dm_fight() {
+  # HP do jogador = class "red1" (o proprio tanque e vermelho no DM)
+  # Extrai HP do primeiro value-block (jogador) e segundo (inimigo)
+  local hp_max=""
   local last_repair=0
   local last_maneuver=0
+  local last_atk=0
+  local shots=0
+  local timeout=$(( $(date +%s) + 600 ))
+  local dm_reload=6  # 6 segundos entre disparos (confirmado)
 
-  # FIX: 6 segundos entre disparos (tempo real do jogo)
-  local dm_reload=6
-
-  echo "[dm] HP: ${DM_HP_PLAYER:-?}/${DM_HP_MAX} vs ${DM_HP_ENEMY:-?}"
+  # Le HP inicial para calcular percentagem
+  hp_max=$(grep -o -E \
+    'value-block lh1[^>]*>[^<]*<[^>]*>[^<]*>[0-9]+' "$SRC" \
+    | grep -o -E '[0-9]+$' | sed -n '1p')
+  echo "[dm] HP max: ${hp_max:-?}"
 
   while [ "$(date +%s)" -lt "$timeout" ]; do
     _session_active || { echo "[dm] sessao perdida"; break; }
-    _dm_extract
+
+    # Extrai links — padrao real confirmado
+    local atk repair maneuver change escape
+    atk=$(grep -o -E \
+      'dm\?[0-9]+-[0-9]+\.ILinkListener-currentControl-buttons-attackRegularShellLink' \
+      "$SRC" | head -n1)
+    repair=$(grep -o -E \
+      'dm\?[0-9]+-[0-9]+\.ILinkListener-currentControl-buttons-repairLink' \
+      "$SRC" | head -n1)
+    maneuver=$(grep -o -E \
+      'dm\?[0-9]+-[0-9]+\.ILinkListener-currentControl-buttons-maneuverLink' \
+      "$SRC" | head -n1)
+    escape=$(grep -o -E \
+      'dm\?[0-9]+-[0-9]+\.ILinkListener-currentControl-escape' \
+      "$SRC" | head -n1)
 
     # Fim da batalha
-    [ -z "$DM_ATK" ] && [ -z "$DM_ESCAPE" ] && {
+    [ -z "$atk" ] && [ -z "$escape" ] && {
       echo "[dm] batalha terminou ($shots disparos)"
       break
     }
+
+    # HP actual do jogador (1o value-block)
+    local hp_now
+    hp_now=$(grep -o -E \
+      'value-block lh1[^>]*>[^<]*<[^>]*>[^<]*>[0-9]+' "$SRC" \
+      | grep -o -E '[0-9]+$' | sed -n '1p')
+
+    # HP inimigo (2o value-block)
+    local hp_enemy
+    hp_enemy=$(grep -o -E \
+      'value-block lh1[^>]*>[^<]*<[^>]*>[^<]*>[0-9]+' "$SRC" \
+      | grep -o -E '[0-9]+$' | sed -n '2p')
 
     local now=$(date +%s)
     local since_repair=$(( now - last_repair ))
     local since_maneuver=$(( now - last_maneuver ))
     local since_atk=$(( now - last_atk ))
 
-    # ── REPAIR: prioridade maxima ─────────────────────────────
-    # FIX: usa repair quando HP < 50% (antes era so manobra)
-    if [ -n "$DM_REPAIR" ] && [ -n "$DM_HP_PLAYER" ] && [ "$DM_HP_MAX" -gt 0 ] \
-       2>/dev/null; then
+    # ── REPAIR: prioridade maxima a 50% HP ────────────────────
+    if [ -n "$repair" ] && [ -n "$hp_now" ] && [ "${hp_max:-0}" -gt 0 ] \
+       && [ "$since_repair" -ge 90 ] 2>/dev/null; then
       local hp_pct
-      hp_pct=$(awk -v n="$DM_HP_PLAYER" -v m="$DM_HP_MAX" \
+      hp_pct=$(awk -v n="$hp_now" -v m="$hp_max" \
         'BEGIN{printf"%.0f",n/m*100}' 2>/dev/null)
-      if [ -n "$hp_pct" ] && [ "$hp_pct" -le 50 ] && \
-         [ "$since_repair" -ge 90 ] 2>/dev/null; then
-        echo "[dm] REPAIR HP: ${DM_HP_PLAYER} (${hp_pct}%)"
-        fetch_page "$DM_REPAIR"
+      if [ -n "$hp_pct" ] && [ "$hp_pct" -le 50 ] 2>/dev/null; then
+        echo "[dm] REPAIR HP: $hp_now (${hp_pct}%)"
+        fetch_page "$repair"
         last_repair=$now
-        DM_HP_MAX="$DM_HP_PLAYER"  # actualiza max apos repair
-        sleep_rand 500 800
+        sleep_rand 300 500
         continue
       fi
     fi
 
-    # ── MANOBRA: usa apos sofrer dano ──────────────────────────
-    if [ -n "$DM_MANEUVER" ] && [ "$since_maneuver" -ge 20 ] 2>/dev/null; then
+    # ── MANOBRA: apos sofrer dano ──────────────────────────────
+    if [ -n "$maneuver" ] && [ "$since_maneuver" -ge 20 ] 2>/dev/null; then
       if grep -q 'disparou a\|causou danos\|danos' "$SRC" 2>/dev/null; then
         echo "[dm] manobra"
-        fetch_page "$DM_MANEUVER"
+        fetch_page "$maneuver"
         last_maneuver=$now
         sleep_rand 300 500
         continue
       fi
     fi
 
-    # ── DISPARO: a cada 6 segundos ────────────────────────────
-    if [ -n "$DM_ATK" ] && [ "$since_atk" -ge "$dm_reload" ] 2>/dev/null; then
-      fetch_page "$DM_ATK"
+    # ── DISPARO: exactamente 6 segundos de intervalo ──────────
+    if [ -n "$atk" ] 2>/dev/null; then
+      local wait_rem=$(( dm_reload - since_atk ))
+      if [ "$wait_rem" -gt 0 ]; then
+        sleep "${wait_rem}s"
+      fi
+      fetch_page "$atk"
       last_atk=$(date +%s)
       shots=$(( shots + 1 ))
-      _dm_extract
-      echo "[dm] #${shots} | HP: ${DM_HP_PLAYER:-?}/${DM_HP_MAX} vs ${DM_HP_ENEMY:-?}"
+      echo "[dm] #${shots} | HP: ${hp_now:-?}/${hp_max:-?} vs ${hp_enemy:-?}"
     else
-      # Espera o tempo restante ate proximo disparo
-      local wait_rem=$(( dm_reload - since_atk ))
-      [ "$wait_rem" -gt 0 ] && sleep "${wait_rem}s" || sleep 1s
+      sleep 1s
     fi
 
   done
