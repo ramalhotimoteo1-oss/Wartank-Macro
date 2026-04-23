@@ -71,6 +71,8 @@ pve_mode() {
 # ── Loop de combate PvE ──────────────────────────────────────
 _pve_fight() {
   local timeout=$(( $(date +%s) + ${PVE_TIMEOUT:-600} ))
+  local _pve_last_repair=0
+  local _pve_hp_max=""
   local shots=0
   local last_atk=0
   local reload="${PVE_RELOAD:-6}"  # 6s = 100% capacidade
@@ -120,9 +122,14 @@ _pve_fight() {
       | grep -o -E '[0-9]+$' | head -n1)
 
     # Repair se HP baixo
-    if [ -n "$repair" ] && [ -n "$hp_player" ] && [ "$hp_player" -lt 500 ] 2>/dev/null; then
-      echo "[pve] repair! HP: $hp_player"
+    local _pve_hp_pct _pve_since_repair
+    _pve_since_repair=$(( $(date +%s) - ${_pve_last_repair:-0} ))
+    _pve_hp_pct=$(awk -v n="${hp_player:-0}" -v m="${_pve_hp_max:-1}"       'BEGIN{if(m>0)printf"%.0f",n/m*100;else print 100}' 2>/dev/null)
+    if [ -n "$repair" ] && [ "${_pve_hp_pct:-100}" -le 50 ] &&        [ "$_pve_since_repair" -ge 90 ] 2>/dev/null; then
+      echo "[pve] REPAIR HP: ${hp_player} (${_pve_hp_pct}%)"
       fetch_page "$repair"
+      _pve_last_repair=$(date +%s)
+      [ -z "$_pve_hp_max" ] && _pve_hp_max="$hp_player"
       sleep_rand 500 800
       continue
     fi
