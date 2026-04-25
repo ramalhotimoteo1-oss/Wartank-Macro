@@ -1,23 +1,28 @@
 #!/bin/bash
-# pve.sh — PvE (Batalhas Historicas) v2.0.0
-# HTML real confirmado:
+# pve.sh — PvE v2.3.0
 #
-# LOBBY (/pve):
-#   titulo: "Batalhas"
-#   apply:   pve?X-X.ILinkListener-currentOverview-apply
-#   refresh: pve?X-X.ILinkListener-refresh
+# LOGICA DE DISPARO (confirmada na imagem):
 #
-# COMBATE ACTIVO:
-#   titulo: "Batalhas" (igual ao lobby — detectar por currentControl)
-#   atk:    pve?6-32.ILinkListener-currentControl-attackRegularShellLink
-#   repair: pve?6-32.ILinkListener-currentControl-repairLink
-#   maneuver: pve?6-32.ILinkListener-currentControl-maneuverLink
-#   change: pve?6-32.ILinkListener-currentControl-changeTargetLink
-#   escape: pve?6-32.ILinkListener-currentControl-escape
-#   HP jogador (class green1): value-block lh1 → 3029
-#   HP inimigo (class red1):   value-block lh1 → 3136
-#   Dano recebido: "A explosão do projetíl da artilharia causou-lhe danos 107"
-#   Reload: 6 segundos entre disparos
+#   CASO 1 — Disparo normal:
+#     dispara → "disparou a X para N danos" → espera 6s → dispara
+#
+#   CASO 2 — Manobra do inimigo (disparo anulado):
+#     dispara → sem "disparou a" no log → dispara IMEDIATAMENTE
+#     repete ate aparecer "disparou a" no log
+#     quando confirma → espera 6s → dispara
+#
+#   CASO 3 — "O projétil ainda não está carregado":
+#     bot disparou antes dos 6s → espera o tempo restante → dispara
+#
+# COMO DETECTAR SE DISPARO FOI CONFIRMADO:
+#   Lê o log ANTES do disparo → guarda ultima linha
+#   Dispara → lê log DEPOIS
+#   Compara: se apareceu nova linha com "disparou a" → confirmado
+#   Se nao apareceu linha nova com dano → manobra → dispara imediatamente
+#
+# REPAIR:
+#   HP < 50% → tenta repair
+#   Se repair nao disponivel → tenta de 5 em 5s (sem cooldown fixo de 90s)
 
 pve_check_and_apply() {
   [ "$FUNC_pve" = "n" ] && return 0
@@ -25,14 +30,12 @@ pve_check_and_apply() {
   fetch_page "/pve"
   if ! _session_active; then return; fi
 
-  # Batalha activa? (detect por currentControl)
   if grep -q 'currentControl-attackRegularShellLink' "$SRC" 2>/dev/null; then
     echo "[pve] batalha activa"
     _pve_fight
     return
   fi
 
-  # Botao de aplicar disponivel?
   local apply_link
   apply_link=$(grep -o -E \
     'pve\?[0-9]+-[0-9]+\.ILinkListener-currentOverview-apply' \
@@ -46,7 +49,6 @@ pve_check_and_apply() {
     echo "[pve] a aplicar: ${battle_name:-batalha} ${wait_time}"
     fetch_page "$apply_link"
     sleep_rand 500 1000
-    # Verifica se ja entrou em combate
     grep -q 'currentControl-attackRegularShellLink' "$SRC" 2>/dev/null && \
       _pve_fight
   fi
@@ -57,110 +59,150 @@ pve_mode() {
   pve_check_and_apply
 }
 
+# ── Extrai o conteudo do log de combate ──────────────────────
+_pve_log() {
+  grep -o -E 'wrap-content small white.*' "$SRC" 2>/dev/null \
+    | sed 's/<[^>]*>//g' | tr -s ' \n' '\n' | grep -v '^$'
+}
+
+# ── Conta linhas de "disparou a" no log — detecta novo disparo confirmado
+_pve_count_shots() {
+  grep -c 'disparou a.*danos\|disparou a.*crit' "$SRC" 2>/dev/null || echo 0
+}
+
 _pve_fight() {
   local timeout=$(( $(date +%s) + ${PVE_TIMEOUT:-600} ))
-  local shots=0
-  local last_atk=0
-  local last_repair=0
-  local last_maneuver=0
+  local shots_confirmed=0
+  local shots_total=0
+  local last_confirmed_ts=0
   local hp_max=""
-  local reload=6  # 6 segundos (confirmado)
+  local reload=6
+
+  # Variaveis de repair sem cooldown fixo
+  local last_repair_attempt=0
+  local repair_retry=5  # tenta repair a cada 5s se HP < 50%
 
   echo "[pve] combate iniciado"
 
   while [ "$(date +%s)" -lt "$timeout" ]; do
     _session_active || { echo "[pve] sessao perdida"; break; }
 
-    # Fim da batalha — sem currentControl volta ao lobby
+    # Fim da batalha
     if ! grep -q 'currentControl-' "$SRC" 2>/dev/null; then
-      echo "[pve] batalha terminou ($shots disparos)"
-      # Lobby pode ter nova batalha disponivel
+      echo "[pve] terminou ($shots_confirmed/$shots_total)"
       local next_apply
       next_apply=$(grep -o -E \
         'pve\?[0-9]+-[0-9]+\.ILinkListener-currentOverview-apply' \
         "$SRC" | head -n1)
       if [ -n "$next_apply" ]; then
-        echo "[pve] nova batalha disponivel — a aplicar"
+        echo "[pve] nova batalha"
         fetch_page "$next_apply"
         sleep_rand 500 1000
         grep -q 'currentControl-attackRegularShellLink' "$SRC" 2>/dev/null || break
-        shots=0
-        hp_max=""
+        shots_confirmed=0; shots_total=0; hp_max=""; last_confirmed_ts=0
         continue
       fi
       break
     fi
 
-    # Extrai links — padrao real confirmado
-    local atk repair maneuver
+    # Extrai links
+    local atk repair
     atk=$(grep -o -E \
       'pve\?[0-9]+-[0-9]+\.ILinkListener-currentControl-attackRegularShellLink' \
       "$SRC" | head -n1)
     repair=$(grep -o -E \
       'pve\?[0-9]+-[0-9]+\.ILinkListener-currentControl-repairLink' \
       "$SRC" | head -n1)
-    maneuver=$(grep -o -E \
-      'pve\?[0-9]+-[0-9]+\.ILinkListener-currentControl-maneuverLink' \
-      "$SRC" | head -n1)
 
-    # HP jogador (class green1 = jogador no PvE)
-    # Extrai o value-block que vem apos "green1"
+    # HP actual
     local hp_now
-    hp_now=$(grep -B1 'value-block lh1' "$SRC" 2>/dev/null \
-      | grep -A1 'green1' \
-      | grep -o -E '[0-9]+' | tail -n1)
-    # Fallback: primeiro value-block
-    [ -z "$hp_now" ] && \
-      hp_now=$(grep -o -E 'value-block lh1[^>]*>[^<]*<[^>]*>[^<]*>[0-9]+' "$SRC" \
-        | grep -o -E '[0-9]+$' | sed -n '1p')
-
-    [ -z "$hp_max" ] && hp_max="${hp_now:-0}"
+    hp_now=$(grep -o -E \
+      'value-block lh1[^>]*>[^<]*<[^>]*>[^<]*>[0-9]+' "$SRC" \
+      | grep -o -E '[0-9]+$' | sed -n '1p')
+    [ -z "$hp_max" ] && [ -n "$hp_now" ] && hp_max="$hp_now"
 
     local now=$(date +%s)
-    local since_repair=$(( now - last_repair ))
-    local since_maneuver=$(( now - last_maneuver ))
-    local since_atk=$(( now - last_atk ))
+    local since_confirmed=$(( now - last_confirmed_ts ))
+    local since_repair_attempt=$(( now - last_repair_attempt ))
 
-    # ── REPAIR a 50% HP ───────────────────────────────────────
-    if [ -n "$repair" ] && [ -n "$hp_now" ] && [ "${hp_max:-0}" -gt 0 ] \
-       && [ "$since_repair" -ge 90 ] 2>/dev/null; then
+    # ── REPAIR: sem cooldown fixo ─────────────────────────────
+    # Se HP < 50%, tenta; se nao disponivel, tenta de 5 em 5s
+    if [ -n "$hp_now" ] && [ "${hp_max:-0}" -gt 0 ] 2>/dev/null; then
       local hp_pct
       hp_pct=$(awk -v n="$hp_now" -v m="$hp_max" \
         'BEGIN{printf"%.0f",n/m*100}' 2>/dev/null)
-      if [ -n "$hp_pct" ] && [ "$hp_pct" -le 50 ] 2>/dev/null; then
-        echo "[pve] REPAIR HP: $hp_now (${hp_pct}%)"
-        fetch_page "$repair"
-        last_repair=$now
-        sleep_rand 300 500
-        continue
+
+      if [ "${hp_pct:-100}" -le 50 ] && \
+         [ "$since_repair_attempt" -ge "$repair_retry" ] 2>/dev/null; then
+        last_repair_attempt=$now
+        if [ -n "$repair" ]; then
+          echo "[pve] REPAIR HP: $hp_now (${hp_pct}%)"
+          fetch_page_fast "$repair"
+          continue
+        else
+          echo "[pve] repair nao disponivel — tenta em ${repair_retry}s"
+        fi
       fi
     fi
 
-    # ── MANOBRA apos dano ──────────────────────────────────────
-    if [ -n "$maneuver" ] && [ "$since_maneuver" -ge 20 ] 2>/dev/null; then
-      if grep -q 'causou-lhe danos\|causou danos' "$SRC" 2>/dev/null; then
-        echo "[pve] manobra"
-        fetch_page "$maneuver"
-        last_maneuver=$now
-        sleep_rand 300 500
-        continue
+    # ── DISPARO ───────────────────────────────────────────────
+    [ -z "$atk" ] && { sleep 1s; continue; }
+
+    # Guarda contagem de disparos confirmados ANTES de disparar
+    local shots_before
+    shots_before=$(_pve_count_shots)
+
+    # Verifica se precisa esperar recarga
+    if [ "$last_confirmed_ts" -gt 0 ]; then
+      local wait_rem=$(( reload - since_confirmed ))
+      if [ "$wait_rem" -gt 0 ]; then
+        # Durante a espera: verifica repair
+        if [ -n "$repair" ] && [ "${hp_pct:-100}" -le 50 ] 2>/dev/null; then
+          echo "[pve] REPAIR durante espera HP: $hp_now (${hp_pct}%)"
+          fetch_page_fast "$repair"
+          last_repair_attempt=$now
+          continue
+        fi
+        sleep "${wait_rem}s"
       fi
     fi
 
-    # ── DISPARO: 6 segundos de intervalo ──────────────────────
-    if [ -n "$atk" ] 2>/dev/null; then
-      local wait_rem=$(( reload - since_atk ))
-      [ "$wait_rem" -gt 0 ] && sleep "${wait_rem}s"
-      fetch_page "$atk"
-      last_atk=$(date +%s)
-      shots=$(( shots + 1 ))
-      echo "[pve] #${shots} | HP: ${hp_now:-?}/${hp_max:-?}"
+    # Dispara (sem sleep extra — fetch_page_fast)
+    fetch_page_fast "$atk"
+    shots_total=$(( shots_total + 1 ))
+    now=$(date +%s)
+
+    # ── Analisa resultado ─────────────────────────────────────
+
+    # CASO: "projétil não carregado" = disparo antes dos 6s
+    if grep -q 'projétil ainda não está carregado\|projetil ainda nao' \
+       "$SRC" 2>/dev/null; then
+      local remaining=$(( reload - ( now - last_confirmed_ts ) ))
+      [ "$remaining" -lt 0 ] && remaining=1
+      echo "[pve] cedo demais — aguarda ${remaining}s"
+      sleep "${remaining}s"
+      continue
+    fi
+
+    # Conta disparos confirmados DEPOIS
+    local shots_after
+    shots_after=$(_pve_count_shots)
+
+    if [ "$shots_after" -gt "$shots_before" ] 2>/dev/null; then
+      # CONFIRMADO — novo "disparou a" apareceu no log
+      shots_confirmed=$(( shots_confirmed + 1 ))
+      last_confirmed_ts=$(date +%s)
+      hp_pct=$(awk -v n="${hp_now:-0}" -v m="${hp_max:-1}" \
+        'BEGIN{printf"%.0f",n/m*100}' 2>/dev/null)
+      echo "[pve] #${shots_confirmed} confirmado | HP: ${hp_now:-?} (${hp_pct:-?}%)"
     else
-      sleep 1s
+      # NAO CONFIRMADO — inimigo usou manobra, disparo anulado
+      # NAO actualiza last_confirmed_ts → dispara imediatamente
+      echo "[pve] anulado (manobra) — disparo imediato"
     fi
 
   done
 
-  echo "[pve] fim: $shots disparos"
+  echo "[pve] fim: $shots_confirmed confirmados / $shots_total tentativas"
   go_hangar
 }
