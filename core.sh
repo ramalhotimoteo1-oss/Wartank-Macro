@@ -1,5 +1,5 @@
 #!/bin/bash
-# core.sh — funcoes base v1.2.0
+# core.sh — funcoes base v1.2.1
 
 BOT_DIR="${BOT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 TMP="${TMP:-$BOT_DIR/.tmp}"
@@ -12,8 +12,6 @@ USER_AGENT="${USER_AGENT:-Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 
 JSESSIONID=""
 ACC=""
 FUEL_CURRENT=""
-GOLD=""
-SILVER=""
 PLAYER_LEVEL=""
 PLAYER_ID=""
 _LOGIN_FAILURES=0
@@ -50,32 +48,23 @@ echo_t() {
 }
 
 sleep_rand() {
-  local min="${1:-300}"
-  local max="${2:-1200}"
-  local delay
+  local min="${1:-300}" max="${2:-1200}" delay
   delay=$(awk -v min="$min" -v max="$max" \
     'BEGIN { srand(); printf "%.3f", (min + rand()*(max-min))/1000 }')
   sleep "${delay}s"
 }
 
+# Credenciais em base64 + chmod 600
+# AES removido: pedia password interactiva no Termux
 _encrypt_creds() {
   local data="$1" out="$2"
-  if command -v openssl >/dev/null 2>&1; then
-    printf '%s' "$data" | openssl enc -aes-256-cbc -salt -a -pbkdf2 2>/dev/null > "$out"
-  else
-    printf '%s' "$data" | base64 -w 0 > "$out"
-  fi
+  printf '%s' "$data" | base64 -w 0 > "$out"
   chmod 600 "$out"
 }
 
 _decrypt_creds() {
   local file="$1"
   [ -f "$file" ] || return 1
-  if command -v openssl >/dev/null 2>&1; then
-    local r
-    r=$(openssl enc -aes-256-cbc -salt -a -d -pbkdf2 < "$file" 2>/dev/null)
-    [ -n "$r" ] && { echo "$r"; return 0; }
-  fi
   base64 -d "$file" 2>/dev/null
 }
 
@@ -130,6 +119,52 @@ fetch_page() {
   sleep_rand 300 700
 }
 
+# fetch_page_fast — sem delay extra, para usar em loops de combate
+# O timing e controlado pelo proprio loop (BATTLE_LA, reload, etc.)
+fetch_page_fast() {
+  local path="$1"
+  local output="${2:-$SRC}"
+  local full_url
+
+  path=$(echo "$path" | sed 's/;jsessionid=[A-Z0-9]*//')
+
+  if [ -n "$JSESSIONID" ]; then
+    if echo "$path" | grep -q '?'; then
+      full_url="${URL}/$(echo "$path" | sed "s|?|;jsessionid=${JSESSIONID}?|")"
+    else
+      full_url="${URL}/${path};jsessionid=${JSESSIONID}"
+    fi
+  else
+    full_url="${URL}/${path}"
+  fi
+
+  full_url=$(echo "$full_url" | sed 's|https://||;s|//|/|g;s|^|https://|')
+
+  local cacert=""
+  for ca in \
+    /data/data/com.termux/files/usr/etc/tls/cert.pem \
+    /etc/ssl/certs/ca-certificates.crt \
+    /etc/pki/tls/certs/ca-bundle.crt; do
+    [ -f "$ca" ] && { cacert="--cacert $ca"; break; }
+  done
+
+  # shellcheck disable=SC2086
+  curl -s -L \
+    -c "$COOKIE_FILE" \
+    -b "$COOKIE_FILE" \
+    -A "$USER_AGENT" \
+    --max-time 20 \
+    --retry 1 \
+    $cacert \
+    -o "$output" \
+    "$full_url" \
+    2>>"$LOG_FILE"
+
+  [ ! -s "$output" ] && log "fetch_fast vazio: $path" "WARN"
+  _update_jsessionid
+  # SEM sleep_rand — timing controlado pelo loop de combate
+}
+
 _session_active() {
   local f="${1:-$SRC}"
   grep -q 'user=0;level=0' "$f" 2>/dev/null && return 1
@@ -165,12 +200,8 @@ check_fuel() {
   [ -z "$FUEL_CURRENT" ] && \
     FUEL_CURRENT=$(grep -o -E 'fuel\.png[^/]*/>[^0-9]*[0-9]+' "$SRC" 2>/dev/null \
       | grep -o -E '[0-9]+$' | head -n1)
-  [ -z "$FUEL_CURRENT" ] && { fetch_page "/angar"; \
-    FUEL_CURRENT=$(grep -o -E 'fuel\.png[^/]*/>[^0-9]*[0-9]+' "$SRC" 2>/dev/null \
-      | grep -o -E '[0-9]+$' | head -n1); }
   [ -z "$FUEL_CURRENT" ] && return 0
-  [ "$FUEL_CURRENT" -le "$min" ] 2>/dev/null && { \
-    echo "[fuel] insuficiente: $FUEL_CURRENT"; return 1; }
+  [ "$FUEL_CURRENT" -le "$min" ] 2>/dev/null && return 1
   return 0
 }
 
@@ -186,8 +217,8 @@ time_exit() {
 
 bot_slogan() {
   echo ""
-  echo "  wartank-pt.net Bot v1.2.0"
+  echo "  wartank-pt.net Bot v1.2.1"
   echo "  [stop] parar | [config] configurar | [status] estado"
   echo ""
-  log "Bot iniciado v1.2.0"
+  log "Bot iniciado v1.2.1"
 }
