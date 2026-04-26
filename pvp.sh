@@ -1,284 +1,196 @@
 #!/bin/bash
-# ============================================================
-# pvp.sh — Módulo PvP
-# Regex baseados no HTML real da batalha PvP
-# ============================================================
-# Estrutura confirmada:
-#   /pvp                → página de entrada (joinLink)
-#   /pvp?X.ILinkListener-joinLink → entra na fila
-#   /pvp?X.ILinkListener-refreshLink → refresh na fila
+# pve.sh — PvE v2.4.0
 #
-# Durante batalha:
-#   attackRegularShellLink → SIMPLES
-#   attackSpecialShellLink → EXPLOSIVAS (com munição)
-#   repairLink             → Kit de reparação
-#   maneuverLink           → Manobra
-#   changeTargetLink       → Mudar alvo
-#   escapeLink             → Abandonar
+# LOGICA CORRIGIDA:
 #
-# HP do jogador/inimigo: <div class="value-block lh1"><span><span>2996</span>
-# Log de batalha: "disparou a", "destruiu", "RICOCHETE", "dos danos"
-# ============================================================
+#   Disparo → confirmado ("disparou a") → last_confirmed_ts = agora → espera 6s
+#   Disparo → manobra inimigo (sem "disparou a") → last_confirmed_ts = agora → dispara imediato
+#   Disparo imediato → confirmado → last_confirmed_ts = agora → espera 6s
+#
+# A CHAVE: last_confirmed_ts e actualizado SEMPRE apos um disparo (confirmado ou anulado)
+# A diferenca e o wait:
+#   - Confirmado  → espera 6s completos
+#   - Anulado     → espera 0s (disparo imediato) MAS actualiza o timer
+#
+# Assim, apos o disparo imediato ser confirmado, os 6s contam a partir
+# desse momento — nunca dispara 2x seguidas sem o inimigo usar manobra
 
-pvp_mode() {
-  echo_t "Batalhas PvP" "$GOLD_BLACK" "$COLOR_RESET"
+pve_check_and_apply() {
+  [ "$FUNC_pve" = "n" ] && return 0
 
-  local battle_num=0
-  local total="${PVP_BATTLES:-4}"
+  fetch_page "/pve"
+  if ! _session_active; then return; fi
 
-  while [ "$battle_num" -lt "$total" ]; do
-    battle_num=$(( battle_num + 1 ))
-    echo_t "Batalha PvP ${battle_num}/${total}" "$GOLD_BLACK" "$COLOR_RESET"
+  if grep -q 'currentControl-attackRegularShellLink' "$SRC" 2>/dev/null; then
+    echo "[pve] batalha activa"
+    _pve_fight
+    return
+  fi
 
-    if ! _pvp_enter; then
-      echo_t "Não foi possível entrar no PvP." "$BLACK_RED" "$COLOR_RESET"
+  local apply_link
+  apply_link=$(grep -o -E \
+    'pve\?[0-9]+-[0-9]+\.ILinkListener-currentOverview-apply' \
+    "$SRC" | head -n1)
+
+  if [ -n "$apply_link" ]; then
+    local battle_name wait_time
+    battle_name=$(grep -o -E 'class="green2">[^<]+' "$SRC" \
+      | sed 's/.*">//' | head -n1)
+    wait_time=$(grep -o -E 'ate o inicio [0-9:]+' "$SRC" | head -n1)
+    echo "[pve] a aplicar: ${battle_name:-batalha} ${wait_time}"
+    fetch_page "$apply_link"
+    sleep_rand 500 1000
+    grep -q 'currentControl-attackRegularShellLink' "$SRC" 2>/dev/null && \
+      _pve_fight
+  fi
+}
+
+pve_mode() {
+  [ "$FUNC_pve" = "n" ] && return 0
+  pve_check_and_apply
+}
+
+_pve_count_shots() {
+  grep -c 'disparou a.*danos\|disparou a.*crit' "$SRC" 2>/dev/null || echo 0
+}
+
+_pve_fight() {
+  local timeout=$(( $(date +%s) + ${PVE_TIMEOUT:-600} ))
+  local shots_confirmed=0
+  local shots_total=0
+  local hp_max=""
+  local reload=6
+
+  # Timer do ultimo disparo (confirmado OU anulado por manobra)
+  # Controla quando pode disparar de novo
+  local last_shot_ts=0
+
+  # Indica se proximo disparo e imediato (manobra detectada)
+  local immediate_next=0
+
+  local last_repair_attempt=0
+  local repair_retry=5
+
+  echo "[pve] combate iniciado"
+
+  while [ "$(date +%s)" -lt "$timeout" ]; do
+    _session_active || { echo "[pve] sessao perdida"; break; }
+
+    # Fim da batalha
+    if ! grep -q 'currentControl-' "$SRC" 2>/dev/null; then
+      echo "[pve] terminou ($shots_confirmed/$shots_total)"
+      local next_apply
+      next_apply=$(grep -o -E \
+        'pve\?[0-9]+-[0-9]+\.ILinkListener-currentOverview-apply' \
+        "$SRC" | head -n1)
+      if [ -n "$next_apply" ]; then
+        echo "[pve] nova batalha"
+        fetch_page "$next_apply"
+        sleep_rand 500 1000
+        grep -q 'currentControl-attackRegularShellLink' "$SRC" 2>/dev/null || break
+        shots_confirmed=0; shots_total=0; hp_max=""
+        last_shot_ts=0; immediate_next=0
+        continue
+      fi
       break
     fi
 
-    if ! _pvp_wait_battle_start; then
-      echo_t "Tempo esgotado na fila." "$BLACK_YELLOW" "$COLOR_RESET"
+    local atk repair
+    atk=$(grep -o -E \
+      'pve\?[0-9]+-[0-9]+\.ILinkListener-currentControl-attackRegularShellLink' \
+      "$SRC" | head -n1)
+    repair=$(grep -o -E \
+      'pve\?[0-9]+-[0-9]+\.ILinkListener-currentControl-repairLink' \
+      "$SRC" | head -n1)
+
+    local hp_now
+    hp_now=$(grep -o -E \
+      'value-block lh1[^>]*>[^<]*<[^>]*>[^<]*>[0-9]+' "$SRC" \
+      | grep -o -E '[0-9]+$' | sed -n '1p')
+    [ -z "$hp_max" ] && [ -n "$hp_now" ] && hp_max="$hp_now"
+
+    local now=$(date +%s)
+    local since_shot=$(( now - last_shot_ts ))
+    local since_repair_attempt=$(( now - last_repair_attempt ))
+
+    local hp_pct=""
+    [ -n "$hp_now" ] && [ "${hp_max:-0}" -gt 0 ] && \
+      hp_pct=$(awk -v n="$hp_now" -v m="$hp_max" \
+        'BEGIN{printf"%.0f",n/m*100}' 2>/dev/null)
+
+    # ── REPAIR: tenta de 5 em 5s se HP < 50% ─────────────────
+    if [ "${hp_pct:-100}" -le 50 ] && \
+       [ "$since_repair_attempt" -ge "$repair_retry" ] 2>/dev/null; then
+      last_repair_attempt=$now
+      if [ -n "$repair" ]; then
+        echo "[pve] REPAIR HP: $hp_now (${hp_pct}%)"
+        fetch_page_fast "$repair"
+        continue
+      else
+        echo "[pve] repair indisponivel — tenta em ${repair_retry}s"
+      fi
+    fi
+
+    # ── DISPARO ───────────────────────────────────────────────
+    [ -z "$atk" ] && { sleep 1s; continue; }
+
+    # Calcula espera necessaria
+    local wait_rem=0
+    if [ "$last_shot_ts" -gt 0 ] && [ "$immediate_next" -eq 0 ]; then
+      # Disparo normal: espera 6s desde o ultimo disparo
+      wait_rem=$(( reload - since_shot ))
+    fi
+    # immediate_next=1: manobra detectada → wait_rem=0 → disparo imediato
+
+    if [ "$wait_rem" -gt 0 ]; then
+      # Durante a espera, aproveita para repair
+      if [ -n "$repair" ] && [ "${hp_pct:-100}" -le 50 ] 2>/dev/null; then
+        echo "[pve] REPAIR durante espera HP: $hp_now (${hp_pct}%)"
+        fetch_page_fast "$repair"
+        last_repair_attempt=$now
+        continue
+      fi
+      sleep "${wait_rem}s"
+    fi
+
+    # Guarda contagem de disparos confirmados antes
+    local shots_before
+    shots_before=$(_pve_count_shots)
+
+    # Dispara
+    fetch_page_fast "$atk"
+    shots_total=$(( shots_total + 1 ))
+    now=$(date +%s)
+
+    # Projétil nao carregado = disparou antes do reload
+    if grep -q 'projétil ainda não está carregado\|projetil ainda nao' \
+       "$SRC" 2>/dev/null; then
+      local remaining=$(( reload - ( now - last_shot_ts ) ))
+      [ "$remaining" -lt 1 ] && remaining=1
+      echo "[pve] cedo demais — aguarda ${remaining}s"
+      sleep "${remaining}s"
       continue
     fi
 
-    # Estratégia por número de batalha
-    case "$battle_num" in
-      1)
-        echo_t "  Estratégia: Batalha completa" "$GRAY_BLACK" "$COLOR_RESET"
-        _pvp_fight_full
-        ;;
-      2|3)
-        echo_t "  Estratégia: Abandono imediato" "$GRAY_BLACK" "$COLOR_RESET"
-        sleep 2s
-        _pvp_escape
-        ;;
-      4)
-        echo_t "  Estratégia: 5 disparos e abandonar" "$GRAY_BLACK" "$COLOR_RESET"
-        _pvp_fight_limited 5
-        _pvp_escape
-        ;;
-    esac
+    # Actualiza timer SEMPRE (confirmado ou anulado)
+    last_shot_ts=$(date +%s)
 
-    echo_t "Batalha ${battle_num} concluída." "$GREEN_BLACK" "$COLOR_RESET"
-    sleep 3s
+    local shots_after
+    shots_after=$(_pve_count_shots)
+
+    if [ "$shots_after" -gt "$shots_before" ] 2>/dev/null; then
+      # CONFIRMADO — proximo disparo espera 6s normais
+      shots_confirmed=$(( shots_confirmed + 1 ))
+      immediate_next=0
+      echo "[pve] #${shots_confirmed} confirmado | HP: ${hp_now:-?} (${hp_pct:-?}%)"
+    else
+      # ANULADO por manobra — proximo disparo e imediato
+      immediate_next=1
+      echo "[pve] anulado (manobra) — proximo imediato"
+    fi
+
   done
 
-  echo_t "PvP concluído." "$GREEN_BLACK" "$COLOR_RESET"
+  echo "[pve] fim: $shots_confirmed confirmados / $shots_total tentativas"
   go_hangar
-}
-
-# ── Entrar na fila PvP ───────────────────────────────────────
-_pvp_enter() {
-  fetch_page "/pvp"
-
-  # HTML real: href="pvp;jsessionid=...?15-1.ILinkListener-joinLink"
-  local join
-  join=$(grep -o -E 'pvp;jsessionid=[A-Z0-9]+\?[0-9]+-[0-9]+\.ILinkListener-joinLink' \
-    "$TMP/SRC" | head -n1)
-
-  if [ -z "$join" ]; then
-    return 1
-  fi
-
-  echo_t "  🚪 A entrar na fila..." "$GRAY_BLACK" "$COLOR_RESET"
-  fetch_page "/${join}"
-  sleep 1s
-  return 0
-}
-
-# ── Aguarda batalha iniciar ──────────────────────────────────
-_pvp_wait_battle_start() {
-  local timeout=$(( $(date +%s) + 180 ))
-  local interval="${PVP_REFRESH_INTERVAL:-10}"
-  local n=0
-
-  echo_t "   À espera de jogadores..." "$GRAY_BLACK" "$COLOR_RESET"
-
-  while [ "$(date +%s)" -lt "$timeout" ]; do
-
-    # Batalha já começou? Detecta pelos links de combate
-    if grep -q 'attackRegularShellLink\|attackSpecialShellLink' "$TMP/SRC" 2>/dev/null; then
-      echo_t "  [combate] Batalha iniciada!" "$GREEN_BLACK" "$COLOR_RESET"
-      return 0
-    fi
-
-    # Refresh na fila
-    # HTML real: href="pvp;jsessionid=...?5-4.ILinkListener-refreshLink"
-    local refresh
-    refresh=$(grep -o -E 'pvp;jsessionid=[A-Z0-9]+\?[0-9]+-[0-9]+\.ILinkListener-refreshLink' \
-      "$TMP/SRC" | head -n1)
-
-    if [ -n "$refresh" ]; then
-      fetch_page "/${refresh}"
-    else
-      fetch_page "/pvp"
-    fi
-
-    n=$(( n + 1 ))
-    echo_t "   Refresh #${n}..." "$GRAY_BLACK" "$COLOR_RESET"
-    sleep "${interval}s"
-  done
-
-  return 1
-}
-
-# ── Extrai links de combate da página actual ─────────────────
-_pvp_extract() {
-  # HTML real confirmado:
-  # href="pvp?14-19.ILinkListener-attackRegularShellLink"
-  # href="pvp?14-19.ILinkListener-attackSpecialShellLink"
-  # href="pvp?14-19.ILinkListener-repairLink"
-  # href="pvp?14-19.ILinkListener-maneuverLink"
-  # href="pvp?14-19.ILinkListener-changeTargetLink"
-  # href="pvp?14-19.ILinkListener-escapeLink"
-  # Nota: pode ser "pvp?" ou "pvp;jsessionid=...?"
-
-  PVP_ATK=$(grep -o -E 'pvp[^"]*\?[0-9]+-[0-9]+\.ILinkListener-attackRegularShellLink' \
-    "$TMP/SRC" | head -n1)
-  PVP_ATK_SPECIAL=$(grep -o -E 'pvp[^"]*\?[0-9]+-[0-9]+\.ILinkListener-attackSpecialShellLink' \
-    "$TMP/SRC" | head -n1)
-  PVP_REPAIR=$(grep -o -E 'pvp[^"]*\?[0-9]+-[0-9]+\.ILinkListener-repairLink' \
-    "$TMP/SRC" | head -n1)
-  PVP_MANEUVER=$(grep -o -E 'pvp[^"]*\?[0-9]+-[0-9]+\.ILinkListener-maneuverLink' \
-    "$TMP/SRC" | head -n1)
-  PVP_CHANGE=$(grep -o -E 'pvp[^"]*\?[0-9]+-[0-9]+\.ILinkListener-changeTargetLink' \
-    "$TMP/SRC" | head -n1)
-  PVP_ESCAPE=$(grep -o -E 'pvp[^"]*\?[0-9]+-[0-9]+\.ILinkListener-escapeLink' \
-    "$TMP/SRC" | head -n1)
-
-  # HP do jogador e inimigo
-  # HTML real: <div class="value-block lh1"><span><span>2996</span></span></div>
-  # Primeiro value-block = jogador, segundo = inimigo
-  PVP_HP_PLAYER=$(grep -o -E 'value-block lh1[^>]*>[^<]*<[^>]*>[^<]*>[0-9]+' "$TMP/SRC" \
-    | grep -o -E '[0-9]+$' | sed -n '1p')
-  PVP_HP_ENEMY=$(grep -o -E 'value-block lh1[^>]*>[^<]*<[^>]*>[^<]*>[0-9]+' "$TMP/SRC" \
-    | grep -o -E '[0-9]+$' | sed -n '2p')
-
-  # Nome do jogador (verde) e inimigo (vermelho)
-  PVP_NAME_PLAYER=$(grep -o -E 'class="small bold green1 sh_b mb10 mt5">[^<]+' "$TMP/SRC" \
-    | sed 's/.*">//' | head -n1)
-  PVP_NAME_ENEMY=$(grep -o -E 'class="small bold red1 sh_b mb10 mt5">[^<]+' "$TMP/SRC" \
-    | sed 's/.*">//' | head -n1)
-
-  # Tanques na batalha
-  PVP_TANKS=$(grep -o -E 'dos Tanques no combate: [0-9]+' "$TMP/SRC" | grep -o -E '[0-9]+' | head -n1)
-}
-
-# ── Disparo com repair e manobra ─────────────────────────────
-_pvp_shoot() {
-  _pvp_extract
-
-  # Batalha terminou?
-  if [ -z "$PVP_ATK" ] && [ -z "$PVP_ESCAPE" ]; then
-    return 1
-  fi
-
-  # Repair se HP baixo
-  if [ -n "$PVP_REPAIR" ] && [ -n "$PVP_HP_PLAYER" ]; then
-    local now since_repair hp_pct
-    now=$(date +%s)
-    since_repair=$(( now - ${_PVP_LAST_REPAIR:-0} ))
-
-    # HP % — usa HP máximo da sessão se disponível
-    if [ -n "$_PVP_HP_MAX" ] && [ "$_PVP_HP_MAX" -gt 0 ]; then
-      hp_pct=$(awk -v n="$PVP_HP_PLAYER" -v m="$_PVP_HP_MAX" \
-        'BEGIN { printf "%.0f", n/m*100 }')
-    else
-      # Sem HP max ainda — guarda como referência
-      _PVP_HP_MAX="$PVP_HP_PLAYER"
-      hp_pct=100
-    fi
-
-    if [ "$hp_pct" -le "${BATTLE_REPAIR_PCT:-30}" ] && \
-       [ "$since_repair" -ge "${BATTLE_REPAIR_CD:-90}" ]; then
-      echo_t "   Repair! HP: ${PVP_HP_PLAYER} (${hp_pct}%)" "$BLACK_YELLOW" "$COLOR_RESET"
-      fetch_page "/${PVP_REPAIR}"
-      _PVP_LAST_REPAIR=$(date +%s)
-      _pvp_extract
-    fi
-  fi
-
-  # Manobra se foi atingido recentemente
-  if [ -n "$PVP_MANEUVER" ]; then
-    local now since_maneuver
-    now=$(date +%s)
-    since_maneuver=$(( now - ${_PVP_LAST_MANEUVER:-0} ))
-
-    # Detecta ataques no log: "disparou a" + nome do jogador
-    if [ "$since_maneuver" -ge "${BATTLE_MANEUVER_CD:-20}" ] && \
-       grep -q "disparou a.*${PVP_NAME_PLAYER}\|RICOCHETE" "$TMP/SRC" 2>/dev/null; then
-      echo_t "  [divisao] Manobra!" "$BLUE_BLACK" "$COLOR_RESET"
-      fetch_page "/${PVP_MANEUVER}"
-      _PVP_LAST_MANEUVER=$(date +%s)
-      _pvp_extract
-    fi
-  fi
-
-  # Disparo — prioridade: simples (preserva munição especial)
-  if [ -n "$PVP_ATK" ]; then
-    fetch_page "/${PVP_ATK}"
-    sleep "${BATTLE_LA:-3}s"
-    _pvp_extract
-    return 0
-  fi
-
-  return 1
-}
-
-# ── Batalha completa ─────────────────────────────────────────
-_pvp_fight_full() {
-  _pvp_extract
-  _PVP_LAST_REPAIR=0
-  _PVP_LAST_MANEUVER=0
-  _PVP_HP_MAX="$PVP_HP_PLAYER"
-
-  local shots=0
-  local timeout=$(( $(date +%s) + 600 ))
-
-  while [ "$(date +%s)" -lt "$timeout" ]; do
-    _pvp_extract
-
-    # Fim de batalha: sem links de ataque E sem escape
-    if [ -z "$PVP_ATK" ] && [ -z "$PVP_ESCAPE" ]; then
-      echo_t "  🏁 Batalha terminada." "$GREEN_BLACK" "$COLOR_RESET"
-      break
-    fi
-
-    if _pvp_shoot; then
-      shots=$(( shots + 1 ))
-      echo_t "  [dm] #${shots} | HP: ${PVP_HP_PLAYER:-?} vs ${PVP_HP_ENEMY:-?} | Tanques: ${PVP_TANKS:-?}" "$GRAY_BLACK" "$COLOR_RESET"
-    else
-      sleep 2s
-    fi
-  done
-
-  echo_t "  Disparos totais: ${shots}" "$GRAY_BLACK" "$COLOR_RESET"
-}
-
-# ── Batalha limitada (N disparos) ────────────────────────────
-_pvp_fight_limited() {
-  local max="${1:-5}"
-  _pvp_extract
-  _PVP_LAST_REPAIR=0
-  _PVP_LAST_MANEUVER=0
-  _PVP_HP_MAX="$PVP_HP_PLAYER"
-
-  local shots=0
-  while [ "$shots" -lt "$max" ]; do
-    _pvp_extract
-    [ -z "$PVP_ATK" ] && { sleep 2s; continue; }
-    if _pvp_shoot; then
-      shots=$(( shots + 1 ))
-      echo_t "  [dm] Disparo ${shots}/${max}" "$GRAY_BLACK" "$COLOR_RESET"
-    fi
-  done
-}
-
-# ── Abandonar batalha ────────────────────────────────────────
-_pvp_escape() {
-  _pvp_extract
-  if [ -n "$PVP_ESCAPE" ]; then
-    echo_t "  🏃 A abandonar batalha..." "$BLACK_YELLOW" "$COLOR_RESET"
-    fetch_page "/${PVP_ESCAPE}"
-    sleep 2s
-  fi
 }
