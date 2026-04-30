@@ -1,11 +1,5 @@
-#!/bin/bash
-# wartank.sh — Engine principal v1.3.1
-# shellcheck disable=SC1091
-
-BOT_DIR="$(cd "$(dirname "$0")" && pwd)"
-export BOT_DIR
-export TMP="${TMP:-$BOT_DIR/.tmp}"
-export URL="${URL:-https://wartank-pt.net}"
+#!/bin/bash                                           # wartank.sh — Engine principal v1.3.1                # shellcheck disable=SC1091
+                                                      BOT_DIR="$(cd "$(dirname "$0")" && pwd)"              export BOT_DIR                                        export TMP="${TMP:-$BOT_DIR/.tmp}"                    export URL="${URL:-https://wartank-pt.net}"
 export LOG_FILE="${LOG_FILE:-$TMP/bot.log}"
 export USER_AGENT="Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
 
