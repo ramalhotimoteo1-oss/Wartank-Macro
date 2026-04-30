@@ -1,16 +1,15 @@
 #!/bin/bash
-# run.sh — scheduler v1.5.0
-# Fix: battle com intervalo fixo de 40 min
-#      convoy com intervalo fixo de 40 min
+# run.sh — scheduler v1.5.1
+# Correcoes:
+#   - painel mostra apos cada ciclo (go_hangar no final do start)
+#   - assault nao tem prioridade sobre battle/missoes
+#   - ordem correcta: battle > missoes > buildings > convoy > company > assault
 
-# ── Timestamps de controlo ───────────────────────────────────
-LAST_BATTLE_TS=0    # ultima batalha normal
-LAST_CONVOY_TS=0    # ultima escolta
+LAST_BATTLE_TS=0
+LAST_CONVOY_TS=0
+BATTLE_INTERVAL=2400
+CONVOY_INTERVAL=2400
 
-BATTLE_INTERVAL=2400   # 40 min em segundos
-CONVOY_INTERVAL=2400   # 40 min em segundos
-
-# ── Idle ─────────────────────────────────────────────────────
 func_sleep() {
   local m
   printf -v m '%(%M)T' -1
@@ -38,7 +37,6 @@ _idle_wait() {
   done
 }
 
-# ── Battle: intervalo de 40 min ──────────────────────────────
 _can_battle() {
   [ "$FUNC_battle" = "n" ] && return 1
 
@@ -46,52 +44,37 @@ _can_battle() {
   now=$(date +%s)
   elapsed=$(( now - LAST_BATTLE_TS ))
 
-  # Ainda dentro do intervalo de 40 min?
   if [ "$elapsed" -lt "$BATTLE_INTERVAL" ]; then
     local remaining=$(( (BATTLE_INTERVAL - elapsed) / 60 ))
-    echo "[battle] aguarda ~${remaining} min para proximo ciclo"
+    echo "[battle] aguarda ~${remaining} min"
     return 1
   fi
 
-  # Verifica combustivel actual
-  go_hangar
+  # Usa FUEL_CURRENT ja lido pelo go_hangar do start()
   local fuel="${FUEL_CURRENT:-0}"
-
   if [ -z "$fuel" ] || [ "$fuel" -eq 0 ] 2>/dev/null; then
     echo "[battle] combustivel zero"
     return 1
   fi
-
-  # Minimo: 90 (3 disparos = 1 inimigo)
   if [ "$fuel" -lt 90 ] 2>/dev/null; then
-    local needed=$(( 90 - fuel ))
-    local wait_min=$(( (needed * 464 / 30) / 60 ))
-    echo "[battle] combustivel insuficiente ($fuel) — aguarda ~${wait_min} min"
+    echo "[battle] combustivel insuficiente ($fuel)"
     return 1
   fi
 
-  echo "[battle] ok | combustivel: $fuel | intervalo: ${elapsed}s >= ${BATTLE_INTERVAL}s"
+  echo "[battle] ok ($fuel)"
   return 0
 }
 
-# ── Convoy: intervalo de 40 min ──────────────────────────────
 _can_convoy() {
   [ "$FUNC_convoy" = "n" ] && return 1
-
-  local now elapsed
-  now=$(date +%s)
-  elapsed=$(( now - LAST_CONVOY_TS ))
-
+  local elapsed=$(( $(date +%s) - LAST_CONVOY_TS ))
   if [ "$elapsed" -lt "$CONVOY_INTERVAL" ]; then
-    local remaining=$(( (CONVOY_INTERVAL - elapsed) / 60 ))
-    echo "[convoy] aguarda ~${remaining} min"
+    echo "[convoy] aguarda ~$(( (CONVOY_INTERVAL - elapsed) / 60 )) min"
     return 1
   fi
-
   return 0
 }
 
-# ── Verifica batalhas (CW/DM/PvE) ───────────────────────────
 _check_battles() {
   if [ "$FUNC_cw" = "y" ]; then
     fetch_page "/cw"
@@ -124,34 +107,41 @@ _check_battles() {
   fi
 }
 
-# ── Manutencao ───────────────────────────────────────────────
 _maintenance() {
-  # Battle: so a cada 40 min
+  # 1. Batalha normal — prioridade maxima
   if _can_battle; then
     adiante_a_combate
     LAST_BATTLE_TS=$(date +%s)
   fi
 
-  # Missoes
+  # 2. Missoes
   [ "$FUNC_missions" = "y" ] && collect_all_rewards
 
-  # Base
+  # 3. Base
   [ "$FUNC_buildings" = "y" ] && buildings_func
 
-  # Escolta: so a cada 40 min
+  # 4. Escolta
   if _can_convoy; then
     convoy_mode
     LAST_CONVOY_TS=$(date +%s)
   fi
 
-  # Divisao + missao especial
+  # 5. Divisao
   [ "$FUNC_company" = "y" ] && company_func
+
+  # 6. Assault — ultimo, nao bloqueia
   [ "$FUNC_assault" = "y" ] && assault_mode
 }
 
 start() {
-  _maintenance
+  # Vai ao hangar — mostra painel com todas as informacoes
   go_hangar
+
+  _maintenance
+
+  # Painel actualizado apos manutencao
+  go_hangar
+
   func_sleep
 }
 
@@ -166,15 +156,11 @@ _check_pvp_time() {
 wartank_play() {
   require_login || return
 
-  if _check_pvp_time; then
-    fetch_page "/pvp"
-    if _session_active && grep -q 'ILinkListener-joinLink' "$SRC" 2>/dev/null; then
-      echo "[run] pvp disponivel"
-      pvp_mode
-      return
-    fi
-  fi
-
+  # Verifica batalhas activas (cw/dm/pve) — prioridade maxima
   _check_battles
   start
+
+  # PvP — sem prioridade, corre no final
+  # pvp.sh verifica o horario (05:23 / 11:23 / 21:23) internamente
+  [ "$FUNC_pvp" = "y" ] && pvp_mode
 }
