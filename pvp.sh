@@ -1,107 +1,174 @@
 #!/bin/bash
-# pve.sh — PvE v2.4.0
+# pvp.sh — PvP v2.0.0
 #
-# LOGICA CORRIGIDA:
+# HORARIOS FIXOS: 05:23, 11:23, 21:23
+# 3 batalhas completas por sessao
+# Disparo: 6s fixos
+# Repair: HP <= 30%
+# Manobra: quando recebe dano
 #
-#   Disparo → confirmado ("disparou a") → last_confirmed_ts = agora → espera 6s
-#   Disparo → manobra inimigo (sem "disparou a") → last_confirmed_ts = agora → dispara imediato
-#   Disparo imediato → confirmado → last_confirmed_ts = agora → espera 6s
+# FILA (acima de 2500 pts):
+#   Aplica → espera 50s
+#   Se batalha iniciar → luta
+#   Se nao iniciar → sai → espera 1 min → tenta de novo
+#   Maximo 3 tentativas por batalha
 #
-# A CHAVE: last_confirmed_ts e actualizado SEMPRE apos um disparo (confirmado ou anulado)
-# A diferenca e o wait:
-#   - Confirmado  → espera 6s completos
-#   - Anulado     → espera 0s (disparo imediato) MAS actualiza o timer
-#
-# Assim, apos o disparo imediato ser confirmado, os 6s contam a partir
-# desse momento — nunca dispara 2x seguidas sem o inimigo usar manobra
+# SEM PRIORIDADE: pvp nao interrompe cw/dm/pve
 
-pve_check_and_apply() {
-  [ "$FUNC_pve" = "n" ] && return 0
+# Horarios fixos — minuto de inicio
+PVP_HOURS="05 11 21"
+PVP_MINUTE="23"
+PVP_WINDOW=4  # minutos de janela apos o horario
 
-  fetch_page "/pve"
-  if ! _session_active; then return; fi
+_pvp_is_time() {
+  local h m
+  printf -v h '%(%H)T' -1
+  printf -v m '%(%M)T' -1
+  h=$((10#$h)); m=$((10#$m))
+  local pm=$((10#$PVP_MINUTE))
 
-  if grep -q 'currentControl-attackRegularShellLink' "$SRC" 2>/dev/null; then
-    echo "[pve] batalha activa"
-    _pve_fight
-    return
-  fi
-
-  local apply_link
-  apply_link=$(grep -o -E \
-    'pve\?[0-9]+-[0-9]+\.ILinkListener-currentOverview-apply' \
-    "$SRC" | head -n1)
-
-  if [ -n "$apply_link" ]; then
-    local battle_name wait_time
-    battle_name=$(grep -o -E 'class="green2">[^<]+' "$SRC" \
-      | sed 's/.*">//' | head -n1)
-    wait_time=$(grep -o -E 'ate o inicio [0-9:]+' "$SRC" | head -n1)
-    echo "[pve] a aplicar: ${battle_name:-batalha} ${wait_time}"
-    fetch_page "$apply_link"
-    sleep_rand 500 1000
-    grep -q 'currentControl-attackRegularShellLink' "$SRC" 2>/dev/null && \
-      _pve_fight
-  fi
+  for pvp_h in $PVP_HOURS; do
+    pvp_h=$((10#$pvp_h))
+    if [ "$h" -eq "$pvp_h" ] && \
+       [ "$m" -ge "$pm" ] && \
+       [ "$m" -lt $(( pm + PVP_WINDOW )) ]; then
+      return 0
+    fi
+  done
+  return 1
 }
 
-pve_mode() {
-  [ "$FUNC_pve" = "n" ] && return 0
-  pve_check_and_apply
-}
+pvp_mode() {
+  [ "$FUNC_pvp" = "n" ] && return 0
+  _pvp_is_time || return 0
 
-_pve_count_shots() {
-  grep -c 'disparou a.*danos\|disparou a.*crit' "$SRC" 2>/dev/null || echo 0
-}
+  echo "[pvp] sessao iniciada (3 batalhas)"
 
-_pve_fight() {
-  local timeout=$(( $(date +%s) + ${PVE_TIMEOUT:-600} ))
-  local shots_confirmed=0
-  local shots_total=0
-  local hp_max=""
-  local reload=6
+  local battles_done=0
+  while [ "$battles_done" -lt 3 ]; do
+    battles_done=$(( battles_done + 1 ))
+    echo "[pvp] batalha $battles_done/3"
 
-  # Timer do ultimo disparo (confirmado OU anulado por manobra)
-  # Controla quando pode disparar de novo
-  local last_shot_ts=0
+    # Tenta entrar — max 3 tentativas
+    local tries=0 entered=0
+    while [ "$tries" -lt 3 ]; do
+      tries=$(( tries + 1 ))
+      echo "[pvp] tentativa $tries/3"
 
-  # Indica se proximo disparo e imediato (manobra detectada)
-  local immediate_next=0
-
-  local last_repair_attempt=0
-  local repair_retry=5
-
-  echo "[pve] combate iniciado"
-
-  while [ "$(date +%s)" -lt "$timeout" ]; do
-    _session_active || { echo "[pve] sessao perdida"; break; }
-
-    # Fim da batalha
-    if ! grep -q 'currentControl-' "$SRC" 2>/dev/null; then
-      echo "[pve] terminou ($shots_confirmed/$shots_total)"
-      local next_apply
-      next_apply=$(grep -o -E \
-        'pve\?[0-9]+-[0-9]+\.ILinkListener-currentOverview-apply' \
-        "$SRC" | head -n1)
-      if [ -n "$next_apply" ]; then
-        echo "[pve] nova batalha"
-        fetch_page "$next_apply"
-        sleep_rand 500 1000
-        grep -q 'currentControl-attackRegularShellLink' "$SRC" 2>/dev/null || break
-        shots_confirmed=0; shots_total=0; hp_max=""
-        last_shot_ts=0; immediate_next=0
-        continue
+      if ! _pvp_join; then
+        echo "[pvp] sem joinLink"
+        break
       fi
-      break
+
+      # Espera 50s para batalha iniciar
+      if _pvp_wait_start 50; then
+        entered=1
+        break
+      else
+        # Batalha nao iniciou — sai e espera 1 min
+        echo "[pvp] batalha nao iniciou — a sair"
+        _pvp_leave
+        echo "[pvp] aguarda 60s"
+        sleep 60s
+      fi
+    done
+
+    if [ "$entered" -eq 1 ]; then
+      _pvp_fight
+    else
+      echo "[pvp] sem batalha apos 3 tentativas"
     fi
 
-    local atk repair
+    sleep 3s
+  done
+
+  echo "[pvp] sessao concluida"
+}
+
+_pvp_join() {
+  fetch_page "/pvp"
+  if ! _session_active; then return 1; fi
+
+  # joinLink — dois padroes possiveis
+  local join
+  join=$(grep -o -E \
+    'pvp[^"]*\?[0-9]+-[0-9]+\.ILinkListener-joinLink' \
+    "$SRC" | head -n1)
+
+  [ -z "$join" ] && return 1
+
+  echo "[pvp] a aplicar: $join"
+  fetch_page "$join"
+  sleep_rand 500 800
+  return 0
+}
+
+_pvp_wait_start() {
+  local max_wait="$1"
+  local elapsed=0
+  echo "[pvp] a aguardar inicio (max ${max_wait}s)..."
+
+  while [ "$elapsed" -lt "$max_wait" ]; do
+    # Batalha activa?
+    if grep -q 'attackRegularShellLink' "$SRC" 2>/dev/null; then
+      echo "[pvp] batalha iniciada!"
+      return 0
+    fi
+
+    # Refresh na fila
+    local ref
+    ref=$(grep -o -E \
+      'pvp[^"]*\?[0-9]+-[0-9]+\.ILinkListener-refreshLink' \
+      "$SRC" | head -n1)
+    [ -n "$ref" ] && fetch_page "$ref" || fetch_page "/pvp"
+
+    sleep 5s
+    elapsed=$(( elapsed + 5 ))
+  done
+
+  return 1
+}
+
+_pvp_leave() {
+  local escape
+  escape=$(grep -o -E \
+    'pvp[^"]*\?[0-9]+-[0-9]+\.ILinkListener-escapeLink' \
+    "$SRC" | head -n1)
+  [ -n "$escape" ] && fetch_page "$escape" && sleep 2s
+}
+
+_pvp_fight() {
+  local shots=0
+  local timeout=$(( $(date +%s) + 600 ))
+  local hp_max=""
+  local last_repair=0
+  local last_maneuver=0
+  local repair_threshold=30
+
+  echo "[pvp] em combate"
+
+  while [ "$(date +%s)" -lt "$timeout" ]; do
+    _session_active || break
+
+    local atk repair maneuver escape
     atk=$(grep -o -E \
-      'pve\?[0-9]+-[0-9]+\.ILinkListener-currentControl-attackRegularShellLink' \
+      'pvp[^"]*\?[0-9]+-[0-9]+\.ILinkListener-attackRegularShellLink' \
       "$SRC" | head -n1)
     repair=$(grep -o -E \
-      'pve\?[0-9]+-[0-9]+\.ILinkListener-currentControl-repairLink' \
+      'pvp[^"]*\?[0-9]+-[0-9]+\.ILinkListener-repairLink' \
       "$SRC" | head -n1)
+    maneuver=$(grep -o -E \
+      'pvp[^"]*\?[0-9]+-[0-9]+\.ILinkListener-maneuverLink' \
+      "$SRC" | head -n1)
+    escape=$(grep -o -E \
+      'pvp[^"]*\?[0-9]+-[0-9]+\.ILinkListener-escapeLink' \
+      "$SRC" | head -n1)
+
+    # Fim de batalha
+    [ -z "$atk" ] && [ -z "$escape" ] && {
+      echo "[pvp] batalha terminou ($shots disparos)"
+      break
+    }
 
     local hp_now
     hp_now=$(grep -o -E \
@@ -110,87 +177,43 @@ _pve_fight() {
     [ -z "$hp_max" ] && [ -n "$hp_now" ] && hp_max="$hp_now"
 
     local now=$(date +%s)
-    local since_shot=$(( now - last_shot_ts ))
-    local since_repair_attempt=$(( now - last_repair_attempt ))
+    local since_repair=$(( now - last_repair ))
+    local since_maneuver=$(( now - last_maneuver ))
 
     local hp_pct=""
     [ -n "$hp_now" ] && [ "${hp_max:-0}" -gt 0 ] && \
       hp_pct=$(awk -v n="$hp_now" -v m="$hp_max" \
         'BEGIN{printf"%.0f",n/m*100}' 2>/dev/null)
 
-    # ── REPAIR: tenta de 5 em 5s se HP < 50% ─────────────────
-    if [ "${hp_pct:-100}" -le 50 ] && \
-       [ "$since_repair_attempt" -ge "$repair_retry" ] 2>/dev/null; then
-      last_repair_attempt=$now
+    # ── REPAIR: HP <= 30% ─────────────────────────────────────
+    if [ "${hp_pct:-100}" -le "$repair_threshold" ] && \
+       [ "$since_repair" -ge 5 ] 2>/dev/null; then
+      last_repair=$now
       if [ -n "$repair" ]; then
-        echo "[pve] REPAIR HP: $hp_now (${hp_pct}%)"
+        echo "[pvp] REPAIR HP: $hp_now (${hp_pct}%)"
         fetch_page_fast "$repair"
         continue
-      else
-        echo "[pve] repair indisponivel — tenta em ${repair_retry}s"
       fi
     fi
 
-    # ── DISPARO ───────────────────────────────────────────────
+    # ── MANOBRA: apos receber dano ────────────────────────────
+    if [ -n "$maneuver" ] && [ "$since_maneuver" -ge 20 ] 2>/dev/null; then
+      if grep -q 'causou-lhe danos' "$SRC" 2>/dev/null; then
+        echo "[pvp] manobra"
+        fetch_page_fast "$maneuver"
+        last_maneuver=$now
+        continue
+      fi
+    fi
+
+    # ── DISPARO: 6s fixos ─────────────────────────────────────
     [ -z "$atk" ] && { sleep 1s; continue; }
-
-    # Calcula espera necessaria
-    local wait_rem=0
-    if [ "$last_shot_ts" -gt 0 ] && [ "$immediate_next" -eq 0 ]; then
-      # Disparo normal: espera 6s desde o ultimo disparo
-      wait_rem=$(( reload - since_shot ))
-    fi
-    # immediate_next=1: manobra detectada → wait_rem=0 → disparo imediato
-
-    if [ "$wait_rem" -gt 0 ]; then
-      # Durante a espera, aproveita para repair
-      if [ -n "$repair" ] && [ "${hp_pct:-100}" -le 50 ] 2>/dev/null; then
-        echo "[pve] REPAIR durante espera HP: $hp_now (${hp_pct}%)"
-        fetch_page_fast "$repair"
-        last_repair_attempt=$now
-        continue
-      fi
-      sleep "${wait_rem}s"
-    fi
-
-    # Guarda contagem de disparos confirmados antes
-    local shots_before
-    shots_before=$(_pve_count_shots)
-
-    # Dispara
+    sleep 6s
     fetch_page_fast "$atk"
-    shots_total=$(( shots_total + 1 ))
-    now=$(date +%s)
-
-    # Projétil nao carregado = disparou antes do reload
-    if grep -q 'projétil ainda não está carregado\|projetil ainda nao' \
-       "$SRC" 2>/dev/null; then
-      local remaining=$(( reload - ( now - last_shot_ts ) ))
-      [ "$remaining" -lt 1 ] && remaining=1
-      echo "[pve] cedo demais — aguarda ${remaining}s"
-      sleep "${remaining}s"
-      continue
-    fi
-
-    # Actualiza timer SEMPRE (confirmado ou anulado)
-    last_shot_ts=$(date +%s)
-
-    local shots_after
-    shots_after=$(_pve_count_shots)
-
-    if [ "$shots_after" -gt "$shots_before" ] 2>/dev/null; then
-      # CONFIRMADO — proximo disparo espera 6s normais
-      shots_confirmed=$(( shots_confirmed + 1 ))
-      immediate_next=0
-      echo "[pve] #${shots_confirmed} confirmado | HP: ${hp_now:-?} (${hp_pct:-?}%)"
-    else
-      # ANULADO por manobra — proximo disparo e imediato
-      immediate_next=1
-      echo "[pve] anulado (manobra) — proximo imediato"
-    fi
+    shots=$(( shots + 1 ))
+    echo "[pvp] #${shots} | HP: ${hp_now:-?} (${hp_pct:-?}%)"
 
   done
 
-  echo "[pve] fim: $shots_confirmed confirmados / $shots_total tentativas"
-  go_hangar
+  echo "[pvp] fim: $shots disparos"
 }
