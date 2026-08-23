@@ -1,146 +1,121 @@
-# Wartank-Bot Beta
+# Wartank-Macro
 
-Bot automático para wartank-pt.net — funciona no Android via Termux.
+Bot automático para **wartank-pt.net** — corre no Android via **Termux**.
+
+Automatiza batalhas, missões, PvP, PvE, guerra de clã, disputa, escolta, base, divisão e missão especial (Assault).
 
 ---
 
-## PARTE 1 — Instalar o Termux
+## Índice
 
-**O que é o Termux?**
-Terminal Linux para Android. O bot corre dentro dele.
+1. [Instalar o Termux](#1--instalar-o-termux)
+2. [Instalar o Bot](#2--instalar-o-bot)
+3. [Configurar a Conta](#3--configurar-a-conta)
+4. [Iniciar e Parar](#4--iniciar-e-parar)
+5. [Comandos em execução](#5--comandos-em-execução)
+6. [Configurações](#6--configurações)
+7. [Logs](#7--logs)
+8. [Manter o bot activo](#8--manter-o-bot-activo)
+9. [Actualizar o Bot](#9--actualizar-o-bot)
+10. [Mudar de conta](#10--mudar-de-conta)
+11. [Multi-contas](#11--multi-contas-em-desenvolvimento)
+12. [Resolver problemas](#12--resolver-problemas)
+13. [Resumo rápido](#13--resumo-rápido)
+14. [Doações](#14--doações)
 
-**Passo 1** — Instala o Termux pela F-Droid (não usar a Play Store):
+---
+
+## 1 — Instalar o Termux
+
+O Termux é um terminal Linux para Android. O bot corre dentro dele.
+
+**Importante:** instala pela **F-Droid**, não pela Play Store.
 
 ```
 https://f-droid.org/packages/com.termux/
 ```
 
----
-
-**Passo 2** — Abre o Termux e actualiza:
+Depois de instalar, abre o Termux e actualiza:
 
 ```bash
-pkg update
+pkg update && pkg upgrade -y
 ```
+
+Instala as dependências:
 
 ```bash
-pkg upgrade -y
+pkg install git curl bash
 ```
 
----
-
-**Passo 3** — Instala as dependências:
-
-```bash
-pkg install git
-```
-
-```bash
-pkg install curl
-```
-
-```bash
-pkg install bash
-```
-
----
-
-**Passo 4** — Verifica a instalação:
+Confirma:
 
 ```bash
 curl --version && bash --version && git --version
 ```
 
-> Se aparecerem versões sem erros, está pronto.
+Se aparecerem versões sem erros, está pronto.
 
 ---
 
-## PARTE 2 — Instalar o Bot
-
-**Passo 1** — Vai para a pasta home:
+## 2 — Instalar o Bot
 
 ```bash
 cd ~
 ```
 
----
-
-**Passo 2** — Clona o repositório directamente como `Wartank-Macro`:
-
 ```bash
 git clone https://github.com/ramalhotimoteo1-oss/Wartank-Macro.git
 ```
-
-> Substitui o URL pelo repositório real do bot.
-> O nome `Wartank-Macro` é obrigatório — não cria pasta dentro de pasta.
-
----
-
-**Passo 3** — Entra na pasta:
 
 ```bash
 cd ~/Wartank-Macro
 ```
 
----
-
-**Passo 4** — Dá permissão de execução:
-
 ```bash
 chmod +x *.sh
 ```
 
----
-
-**Passo 5** — Confirma que os ficheiros estão lá:
+Confirma os ficheiros:
 
 ```bash
 ls
 ```
 
-> Deves ver: `play.sh`, `wartank.sh`, `setup.sh`, `core.sh`, etc.
+Deves ver, entre outros: `play.sh`, `wartank.sh`, `core.sh`, `login.sh`, `run.sh`, `assault.sh`, etc.
 
 ---
 
-## PARTE 3 — Configurar a Conta
+## 3 — Configurar a Conta
 
-**Passo 1** — Abre o menu de contas:
-
-```bash
-./setup.sh
-```
-
----
-
-**Passo 2** — Escolhe `2) Adicionar`
-
-**Passo 3** — Escreve o teu username
-
-**Passo 4** — Escreve a tua password
-
-> A password não aparece enquanto escreves — é normal e seguro.
-
----
-
-## PARTE 4 — Iniciar o Bot
-
-**Para iniciar:**
+Na **primeira execução**, o bot pede username e password no terminal.
 
 ```bash
 ./play.sh
 ```
 
+A password não aparece enquanto escreves — é normal e seguro.  
+As credenciais ficam guardadas em `.tmp/cript_file` (permissões restritas).
+
+> **Nota:** o ficheiro `setup.sh` existe no projecto para a gestão de contas no futuro sistema multi-contas (ver secção 11). Na versão actual (single-conta), o login é feito directamente ao iniciar o bot.
+
 ---
 
-**Para parar — escreve no terminal:**
+## 4 — Iniciar e Parar
+
+**Iniciar:**
+
+```bash
+cd ~/Wartank-Macro
+./play.sh
+```
+
+**Parar** (escreve no terminal enquanto o bot corre):
 
 ```
 stop
 ```
 
----
-
-**Para parar à força:**
+**Parar à força:**
 
 ```bash
 ./stop.sh
@@ -148,92 +123,58 @@ stop
 
 ---
 
-## PARTE 5 — Mudar de Conta
+## 5 — Comandos em execução
 
-**Apaga as credenciais da conta anterior:**
+Enquanto o bot está a correr, podes escrever no terminal:
 
-```bash
-rm -f ~/Wartank-Macro/.tmp/cript_file
-```
-
-```bash
-rm -f ~/Wartank-Macro/.tmp/cookies.txt
-```
-
-**Inicia o bot — vai pedir nova conta:**
-
-```bash
-./play.sh
-```
+| Comando   | Acção                    |
+|-----------|--------------------------|
+| `stop`    | Para o bot               |
+| `config`  | Abre o menu de opções    |
+| `status`  | Mostra o painel do hangar|
 
 ---
 
-## PARTE 6 — Comandos Durante a Execução
-
-Enquanto o bot está a correr, escreve no terminal:
-
-**Abrir configurações:**
-
-```
-config
-```
-
-**Ver estado actual:**
-
-```
-status
-```
-
-**Parar o bot:**
-
-```
-stop
-```
-
----
-
-## PARTE 7 — Configurações
+## 6 — Configurações
 
 O ficheiro `config.cfg` é criado automaticamente na primeira execução.
 
-**Para editar:**
+**Editar:**
 
 ```bash
 nano config.cfg
 ```
 
-**Opções disponíveis:**
+**Opções principais:**
 
 ```
 FUNC_battle=y          → Batalha normal
 FUNC_missions=y        → Recolha de missões
 FUNC_pvp=y             → PvP
-FUNC_pvp_hour=21       → Hora do PvP (0-23)
+FUNC_pvp_hour=21       → Referência de hora PvP (horários reais: 05:23, 11:23, 21:23)
 FUNC_pve=y             → Batalhas históricas
 FUNC_cw=y              → Guerra de clã
 FUNC_dm=y              → Disputa (Deathmatch)
 FUNC_convoy=y          → Escolta
 FUNC_buildings=y       → Recolha da Base
-FUNC_assault=y         → Missão especial (sempre Abrigo)
+FUNC_assault=y         → Missão especial (Abrigo)
 FUNC_company=y         → Missões da Divisão
 
-BATTLE_LA=3            → Segundos entre disparos
+BATTLE_LA=3            → Segundos entre disparos (batalha normal)
 BATTLE_SHOTS=9         → Disparos por sessão (9 = 3 inimigos)
 FUEL_MIN=0             → Combustível mínimo
-ASSAULT_MIN_MEMBERS=1  → Membros para iniciar missão especial
+ASSAULT_MIN_MEMBERS=1  → Membros mínimos para iniciar o Assault
 ```
 
-**Guardar após editar:**
+**Guardar no nano:** `Ctrl+O` → Enter → `Ctrl+X`
 
-```
-Ctrl+O  →  Enter  →  Ctrl+X
-```
+Também podes usar o comando `config` enquanto o bot corre.
 
 ---
 
-## PARTE 8 — Ver Logs
+## 7 — Logs
 
-**Log em tempo real:**
+**Em tempo real:**
 
 ```bash
 tail -f ~/Wartank-Macro/.tmp/bot.log
@@ -245,7 +186,7 @@ tail -f ~/Wartank-Macro/.tmp/bot.log
 tail -50 ~/Wartank-Macro/.tmp/bot.log
 ```
 
-**Pesquisar erros:**
+**Procurar erros:**
 
 ```bash
 grep "ERRO" ~/Wartank-Macro/.tmp/bot.log
@@ -253,21 +194,19 @@ grep "ERRO" ~/Wartank-Macro/.tmp/bot.log
 
 ---
 
-## PARTE 9 — Manter o Bot Activo
+## 8 — Manter o bot activo
 
-**Para o bot não ser suspenso com o ecrã desligado:**
+Para o Android não suspender o Termux com o ecrã desligado:
 
 ```bash
 termux-wake-lock
 ```
 
-> Corre este comando antes de `./play.sh`.
+Corre este comando **antes** de `./play.sh`.
 
 ---
 
-## PARTE 10 — Actualizar o Bot
-
-**Para actualizar com versão mais recente:**
+## 9 — Actualizar o Bot
 
 ```bash
 cd ~/Wartank-Macro
@@ -281,33 +220,7 @@ git pull
 chmod +x *.sh
 ```
 
----
-
-## PARTE 11 — Resolver Problemas
-
----
-
-**Bot fica na mesma conta mesmo apagando credenciais**
-
-Apaga os dois ficheiros:
-
-```bash
-rm -f ~/Wartank-Macro/.tmp/cript_file
-```
-
-```bash
-rm -f ~/Wartank-Macro/.tmp/cookies.txt
-```
-
----
-
-**"Config não encontrado. A criar..." em loop**
-
-Garante que entras sempre na pasta antes de iniciar:
-
-```bash
-cd ~/Wartank-Macro
-```
+Reinicia o bot depois de actualizar:
 
 ```bash
 ./play.sh
@@ -315,64 +228,110 @@ cd ~/Wartank-Macro
 
 ---
 
-**Bot não combate**
+## 10 — Mudar de conta
 
-Verifica o log:
+Apaga as credenciais e cookies da conta actual:
+
+```bash
+rm -f ~/Wartank-Macro/.tmp/cript_file
+rm -f ~/Wartank-Macro/.tmp/cookies.txt
+```
+
+Inicia de novo — o bot pede a nova conta:
+
+```bash
+./play.sh
+```
+
+---
+
+## 11 — Multi-contas (em desenvolvimento)
+
+O suporte a **várias contas em paralelo** é um projecto **viável e planeado**, mas ainda **em desenvolvimento**.
+
+Por isso existe (ou existirá) o `setup.sh` no repositório: serve para gerir várias contas (adicionar, listar, remover) quando o modo multi-contas estiver estável.
+
+**Estado actual:**
+- Single-conta: **funcional** (`./play.sh`)
+- Multi-contas: **em desenvolvimento** — não uses como funcionalidade pronta
+
+Quando estiver pronto, a documentação desta secção será actualizada com os comandos exactos.
+
+---
+
+## 12 — Resolver problemas
+
+### Bot fica na mesma conta mesmo apagando credenciais
+
+Apaga **os dois** ficheiros:
+
+```bash
+rm -f ~/Wartank-Macro/.tmp/cript_file
+rm -f ~/Wartank-Macro/.tmp/cookies.txt
+```
+
+### "Config não encontrado" em loop
+
+Garante que entras na pasta correcta antes de iniciar:
+
+```bash
+cd ~/Wartank-Macro
+./play.sh
+```
+
+### Bot não combate
 
 ```bash
 tail -50 ~/Wartank-Macro/.tmp/bot.log
 ```
 
-Causas mais comuns:
-- Combustível abaixo de 90 (mínimo para 1 inimigo)
+Causas comuns:
+- Combustível abaixo de ~90 (mínimo para batalha normal)
 - `FUNC_battle=n` no `config.cfg`
 
----
+### Sessão expira com frequência
 
-**Sessão expira com frequência**
+Normal em redes móveis — o bot tenta reconectar sozinho.  
+Se falhar 3 vezes seguidas, para e reinicia com `./play.sh`.
 
-Normal em ligações móveis — o bot reconecta automaticamente.
-Se falhar 3 vezes seguidas, para e reinicia com:
-
-```bash
-./play.sh
-```
-
----
-
-**Pasta Wartank-Macro dentro de Wartank-Bot**
-
-Apaga e clona de novo correctamente:
+### Pasta errada / clone duplicado
 
 ```bash
 cd ~
-```
-
-```bash
-rm -rf Wartank-Bot
-```
-
-```bash
+rm -rf Wartank-Macro
 git clone https://github.com/ramalhotimoteo1-oss/Wartank-Macro.git
+cd ~/Wartank-Macro
+chmod +x *.sh
 ```
 
 ---
 
-## Resumo Rápido
+## 13 — Resumo rápido
 
-| O que fazer | Comando |
-|---|---|
-| Actualizar Termux | `pkg update && pkg upgrade -y` |
-| Instalar git | `pkg install git` |
-| Instalar curl/bash | `pkg install curl bash` |
-| Clonar o bot | `git clone URL Wartank-Macro` |
-| Entrar na pasta | `cd ~/Wartank-Macro` |
-| Permissões | `chmod +x *.sh` |
-| Adicionar conta | `./setup.sh` |
-| Iniciar | `./play.sh` |
-| Parar | escreve `stop` |
-| Ver log | `tail -f .tmp/bot.log` |
+| O que fazer              | Comando                                      |
+|--------------------------|----------------------------------------------|
+| Actualizar Termux        | `pkg update && pkg upgrade -y`               |
+| Instalar dependências    | `pkg install git curl bash`                  |
+| Clonar o bot             | `git clone https://github.com/ramalhotimoteo1-oss/Wartank-Macro.git` |
+| Entrar na pasta          | `cd ~/Wartank-Macro`                         |
+| Permissões               | `chmod +x *.sh`                              |
+| Iniciar                  | `./play.sh`                                  |
+| Parar                    | escreve `stop`                               |
+| Parar à força            | `./stop.sh`                                  |
+| Ver log                  | `tail -f .tmp/bot.log`                       |
+| Wake lock                | `termux-wake-lock`                           |
+| Actualizar bot           | `git pull && chmod +x *.sh`                  |
 
-> Doações: ramirosh015@gmail.com
-| Wake lock | `termux-wake-lock` |
-| Actualizar bot | `git pull` |
+---
+
+## 14 — Doações
+
+Se o bot te for útil e quiseres apoiar o desenvolvimento:
+
+**PayPal / contacto:** `ramirosh015@gmail.com`
+
+Obrigado a quem contribui — ajuda a manter o projecto activo e a evoluir funcionalidades como o multi-contas.
+
+---
+
+**Repositório:** [github.com/ramalhotimoteo1-oss/Wartank-Macro](https://github.com/ramalhotimoteo1-oss/Wartank-Macro)
