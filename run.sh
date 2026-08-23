@@ -151,8 +151,8 @@ _maintenance() {
   [ "$FUNC_missions" = "y" ] && collect_all_rewards
 
   # 3. Base
-  [ "$FUNC_buildings" = "y" ] && buildings_func
-
+  [ "$FUNC_buildings" = "y" ] && base_mode
+  
   # 4. Escolta — tenta sempre; o jogo define se ha botao
   if _can_convoy; then
     convoy_mode
