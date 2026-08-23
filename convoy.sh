@@ -1,18 +1,16 @@
 #!/bin/bash
-# convoy.sh — Escolta v1.3.0
-# Fix: logica de combate correcta
+# convoy.sh — Escolta v1.6.0
 #
-# Regras confirmadas:
-#   - Cooldown: 40 min (gerido pelo run.sh)
-#   - Combate: maximo 3 disparos por inimigo
-#   - Se inimigo morrer com 3 ou menos disparos: procura novo inimigo
-#   - Se inimigo nao morrer com 3 disparos: batalha encerra (novo ciclo)
-#   - Maximo 2 inimigos por sessao
+# ALTERACOES v1.6.0:
+#   + Detecta combate JA activo (fightView-attackRegular / smartAttack / attackSpecial)
+#   + Nao depende so de findEnemy — se estiver a meio do fight, combate
+#   + Fluxo:
+#       A) Ja em combate (fightView-*) → _convoy_fight → startMasking
+#       B) startFight / actLink → combate → startMasking
+#       C) findEnemy → reconhecimento → startFight → combate → startMasking
+#       D) Nada disso → cooldown no jogo, sai
 #
-# Inimigos (por ordem de dificuldade):
-#   Obus auto-propulsado: 1000 HP
-#   Tanque:               1200 HP
-#   Trem blindado:        1600 HP
+# Sem timer interno no bot. Disponibilidade = HTML do jogo.
 
 convoy_mode() {
   [ "$FUNC_convoy" = "n" ] && return 0
@@ -27,7 +25,7 @@ convoy_mode() {
     return
   fi
 
-  # Recolhe recompensas de missoes se disponiveis
+  # Recolhe recompensas de missoes
   local award_link collected=0
   while IFS= read -r award_link; do
     [ -z "$award_link" ] && continue
@@ -42,82 +40,188 @@ convoy_mode() {
 
   [ "$collected" -gt 0 ] && echo "[convoy] $collected recompensa(s) recolhida(s)"
 
-  # Inicia reconhecimento
-  local find_link
-  find_link=$(grep -o -E \
-    'convoy\?[0-9]+-[0-9]+\.ILinkListener-root-findEnemy' \
-    "$SRC" | head -n1)
-
-  if [ -z "$find_link" ]; then
-    echo "[convoy] reconhecimento nao disponivel"
+  # ── A) Ja em combate (fightView) ────────────────────────────
+  if _convoy_in_fight; then
+    echo "[convoy] combate ja activo"
+    _convoy_fight
+    _convoy_after_session
     return
   fi
 
-  # Loop: maximo 2 inimigos por sessao
+  # ── B) Ecran do inimigo: ADIANTE A COMBATER / actLink ───────
+  if _convoy_try_start_fight; then
+    if _convoy_in_fight || grep -qE 'fightView-attack|ILinkListener-[^"]*attack' "$SRC" 2>/dev/null; then
+      _convoy_fight
+    fi
+    _convoy_after_session
+    return
+  fi
+
+  # ── C) Reconhecimento disponivel ────────────────────────────
+  local find_link
+  find_link=$(grep -o -E \
+    'convoy\?[0-9]+-[0-9]+\.ILinkListener-root-findEnemy' \
+    "$SRC" 2>/dev/null | head -n1)
+
+  if [ -z "$find_link" ]; then
+    echo "[convoy] indisponivel (sem findEnemy / startFight / fightView)"
+    echo "[convoy] links: $(grep -o -E 'convoy\?[^"]+' "$SRC" 2>/dev/null | head -8 | tr '\n' ' ')"
+    return
+  fi
+
   local enemies_killed=0
   local max_enemies=2
 
   while [ "$enemies_killed" -lt "$max_enemies" ]; do
-    echo "[convoy] a procurar inimigo ($((enemies_killed+1))/$max_enemies)"
+    echo "[convoy] reconhecimento ($((enemies_killed+1))/$max_enemies)"
+
+    find_link=$(grep -o -E \
+      'convoy\?[0-9]+-[0-9]+\.ILinkListener-root-findEnemy' \
+      "$SRC" 2>/dev/null | head -n1)
+    [ -z "$find_link" ] && {
+      echo "[convoy] sem findEnemy — fim"
+      break
+    }
 
     fetch_page "$find_link"
     sleep_rand 800 1200
 
-    # Verifica se encontrou inimigo para atacar
-    local act_link
-    act_link=$(grep -o -E \
-      'convoy\?[0-9]+-[0-9]+\.ILinkListener-root-banner-actLink' \
-      "$SRC" | head -n1)
-
-    if [ -z "$act_link" ]; then
-      echo "[convoy] sem inimigo encontrado"
-      break
+    if ! _convoy_try_start_fight; then
+      if ! _convoy_in_fight; then
+        echo "[convoy] sem inimigo"
+        break
+      fi
     fi
 
-    echo "[convoy] inimigo encontrado — a entrar em combate"
-    fetch_page "$act_link"
-    sleep_rand 500 800
-
-    # Combate: maximo 3 disparos
     local result
     result=$(_convoy_fight)
 
     if [ "$result" = "killed" ]; then
       enemies_killed=$(( enemies_killed + 1 ))
       echo "[convoy] inimigo destruido ($enemies_killed/$max_enemies)"
-      # Atualiza link de reconhecimento para proximo inimigo
       find_link=$(grep -o -E \
         'convoy\?[0-9]+-[0-9]+\.ILinkListener-root-findEnemy' \
-        "$SRC" | head -n1)
+        "$SRC" 2>/dev/null | head -n1)
       [ -z "$find_link" ] && break
     else
-      # 3 disparos sem destruir — sessao encerra
       echo "[convoy] inimigo nao destruido — sessao encerrada"
       break
     fi
   done
 
-  echo "[convoy] fim ($enemies_killed inimigo(s) destruido(s))"
+  echo "[convoy] combate fim ($enemies_killed inimigo(s))"
+  _convoy_after_session
 }
 
-# ── Combate contra um inimigo (max 3 disparos) ────────────────
-# Retorna: "killed" se destruiu, "timeout" se nao destruiu em 3 tiros
+_convoy_in_fight() {
+  grep -qE \
+    'ILinkListener-root-fightView-(attackRegular|smartAttack|attackSpecial)' \
+    "$SRC" 2>/dev/null
+}
+
+_convoy_try_start_fight() {
+  local fight act
+
+  fight=$(grep -o -E \
+    'convoy\?[0-9]+-[0-9]+\.ILinkListener-root-startFight' \
+    "$SRC" 2>/dev/null | head -n1)
+
+  if [ -n "$fight" ]; then
+    echo "[convoy] ADIANTE A COMBATER: $fight"
+    fetch_page "$fight"
+    sleep_rand 500 800
+    return 0
+  fi
+
+  act=$(grep -o -E \
+    'convoy\?[0-9]+-[0-9]+\.ILinkListener-root-banner-actLink' \
+    "$SRC" 2>/dev/null | head -n1)
+
+  if [ -n "$act" ]; then
+    echo "[convoy] actLink: $act"
+    fetch_page "$act"
+    sleep_rand 500 800
+    fight=$(grep -o -E \
+      'convoy\?[0-9]+-[0-9]+\.ILinkListener-root-startFight' \
+      "$SRC" 2>/dev/null | head -n1)
+    if [ -n "$fight" ]; then
+      echo "[convoy] ADIANTE A COMBATER: $fight"
+      fetch_page "$fight"
+      sleep_rand 500 800
+    fi
+    return 0
+  fi
+
+  return 1
+}
+
+_convoy_after_session() {
+  _convoy_start_reload
+  echo "[convoy] fim"
+}
+
+_convoy_start_reload() {
+  echo "[convoy] a iniciar recarregamento (startMasking)"
+
+  fetch_page "/convoy"
+  if ! _session_active; then
+    echo "[convoy] sessao perdida — recarregamento nao iniciado"
+    return
+  fi
+
+  local mask_link
+  mask_link=$(grep -o -E \
+    'convoy\?[0-9]+-[0-9]+\.ILinkListener-root-startMasking' \
+    "$SRC" 2>/dev/null | head -n1)
+
+  if [ -n "$mask_link" ]; then
+    echo "[convoy] startMasking: $mask_link"
+    fetch_page "$mask_link"
+    sleep_rand 500 800
+    echo "[convoy] recarregamento iniciado no jogo"
+    return
+  fi
+
+  mask_link=$(grep -o -E \
+    'convoy\?[0-9]+-[0-9]+\.ILinkListener-root-[^"]*[Mm]ask[^"]*' \
+    "$SRC" 2>/dev/null | head -n1)
+
+  if [ -n "$mask_link" ]; then
+    echo "[convoy] mask fallback: $mask_link"
+    fetch_page "$mask_link"
+    sleep_rand 500 800
+    return
+  fi
+
+  echo "[convoy] AVISO: startMasking nao encontrado"
+  echo "[convoy] links: $(grep -o -E 'convoy\?[^"]+' "$SRC" 2>/dev/null | head -8 | tr '\n' ' ')"
+}
+
 _convoy_fight() {
   local shots=0
   local max_shots=3
   local la="${BATTLE_LA:-3}"
 
+  echo "[convoy] em combate"
+
   while [ "$shots" -lt "$max_shots" ]; do
     _session_active || { echo "timeout"; return; }
 
-    # Link de ataque ao inimigo do comboio
     local atk_link
     atk_link=$(grep -o -E \
+      'convoy\?[0-9]+-[0-9]+\.ILinkListener-root-fightView-attackRegular' \
+      "$SRC" 2>/dev/null | head -n1)
+    [ -z "$atk_link" ] && atk_link=$(grep -o -E \
+      'convoy\?[0-9]+-[0-9]+\.ILinkListener-root-fightView-smartAttack' \
+      "$SRC" 2>/dev/null | head -n1)
+    [ -z "$atk_link" ] && atk_link=$(grep -o -E \
+      'convoy\?[0-9]+-[0-9]+\.ILinkListener-root-fightView-attackSpecial' \
+      "$SRC" 2>/dev/null | head -n1)
+    [ -z "$atk_link" ] && atk_link=$(grep -o -E \
       'convoy\?[0-9]+-[0-9]+\.ILinkListener-[^"]*attack[^"]*' \
-      "$SRC" | head -n1)
+      "$SRC" 2>/dev/null | head -n1)
 
     if [ -z "$atk_link" ]; then
-      # Sem link de ataque = inimigo destruido ou saiu do combate
       echo "killed"
       return
     fi
@@ -128,17 +232,11 @@ _convoy_fight() {
     shots=$(( shots + 1 ))
     echo "[convoy] disparo $shots/$max_shots"
 
-    # Verifica se inimigo foi destruido (sem mais link de ataque)
-    local next_atk
-    next_atk=$(grep -o -E \
-      'convoy\?[0-9]+-[0-9]+\.ILinkListener-[^"]*attack[^"]*' \
-      "$SRC" | head -n1)
-    if [ -z "$next_atk" ]; then
+    if ! grep -qE 'fightView-attack|ILinkListener-[^"]*attack' "$SRC" 2>/dev/null; then
       echo "killed"
       return
     fi
   done
 
-  # 3 disparos feitos, inimigo ainda vivo
   echo "timeout"
 }
