@@ -170,10 +170,9 @@ _pvp_fight() {
       break
     }
 
+    # HP via funcao unificada (value-block — pvp usa mesmo padrao que assault)
     local hp_now
-    hp_now=$(grep -o -E \
-      'value-block lh1[^>]*>[^<]*<[^>]*>[^<]*>[0-9]+' "$SRC" \
-      | grep -o -E '[0-9]+$' | sed -n '1p')
+    hp_now=$(get_player_hp "value-block")
     [ -z "$hp_max" ] && [ -n "$hp_now" ] && hp_max="$hp_now"
 
     local now=$(date +%s)
@@ -181,12 +180,16 @@ _pvp_fight() {
     local since_maneuver=$(( now - last_maneuver ))
 
     local hp_pct=""
-    [ -n "$hp_now" ] && [ "${hp_max:-0}" -gt 0 ] && \
+    if [ -n "$hp_now" ] && [ "${hp_max:-0}" -gt 0 ] 2>/dev/null; then
       hp_pct=$(awk -v n="$hp_now" -v m="$hp_max" \
         'BEGIN{printf"%.0f",n/m*100}' 2>/dev/null)
+    elif [ -z "$hp_now" ]; then
+      echo "[pvp] AVISO: HP nao detectado"
+    fi
 
-    # ── REPAIR: HP <= 30% ─────────────────────────────────────
-    if [ "${hp_pct:-100}" -le "$repair_threshold" ] && \
+    # REPAIR: HP <= 30%, tenta de 5 em 5s
+    if [ -n "$hp_pct" ] && \
+       [ "$hp_pct" -le "$repair_threshold" ] && \
        [ "$since_repair" -ge 5 ] 2>/dev/null; then
       last_repair=$now
       if [ -n "$repair" ]; then
