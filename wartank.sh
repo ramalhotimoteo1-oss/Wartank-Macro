@@ -49,6 +49,7 @@ _load cw.sh
 _load dm.sh
 _load convoy.sh
 _load buildings.sh
+_load base.sh
 _load company.sh
 _load assault.sh
 _load run.sh
