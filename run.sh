@@ -1,14 +1,17 @@
 #!/bin/bash
-# run.sh — scheduler v1.5.1
-# Correcoes:
-#   - painel mostra apos cada ciclo (go_hangar no final do start)
-#   - assault nao tem prioridade sobre battle/missoes
-#   - ordem correcta: battle > missoes > buildings > convoy > company > assault
+# run.sh — scheduler v1.6.0
+#
+# ALTERACOES v1.6.0:
+#   + Battle com horarios fixos a cada 40 min (nao usa intervalo desde o ultimo combate)
+#   + Slots: 00:00, 00:40, 01:20, 02:00, 02:40, ... ate 23:20
+#   + Janela BATTLE_WINDOW (default 3 min) apos o slot
+#   + LAST_BATTLE_SLOT evita repetir no mesmo horario
+#   + Restart do bot NAO gasta combustivel logo de seguida
+#
+# Ordem: cw/dm/pve (prioridade) > battle > missoes > buildings > convoy > company > assault > pvp
 
-LAST_BATTLE_TS=0
-LAST_CONVOY_TS=0
-BATTLE_INTERVAL=2400
-CONVOY_INTERVAL=2400
+LAST_BATTLE_SLOT=""
+BATTLE_WINDOW="${BATTLE_WINDOW:-3}"
 
 func_sleep() {
   local m
@@ -37,41 +40,71 @@ _idle_wait() {
   done
 }
 
+# ── Slot actual de battle (HH:MM) ou vazio se fora da janela ──
+# Multiplos de 40 min desde 00:00: 00:00, 00:40, 01:20, 02:00, ...
+_battle_current_slot() {
+  local h m total slot_min slot_h slot_m diff
+  printf -v h '%(%H)T' -1
+  printf -v m '%(%M)T' -1
+  h=$((10#$h)); m=$((10#$m))
+  total=$(( h * 60 + m ))
+
+  slot_min=$(( (total / 40) * 40 ))
+  diff=$(( total - slot_min ))
+
+  # Fora da janela (ex.: mais de 3 min depois do slot)
+  [ "$diff" -ge "$BATTLE_WINDOW" ] && { echo ""; return; }
+
+  slot_h=$(( slot_min / 60 ))
+  slot_m=$(( slot_min % 60 ))
+  printf '%02d:%02d' "$slot_h" "$slot_m"
+}
+
 _can_battle() {
   [ "$FUNC_battle" = "n" ] && return 1
 
-  local now elapsed
-  now=$(date +%s)
-  elapsed=$(( now - LAST_BATTLE_TS ))
+  local slot
+  slot=$(_battle_current_slot)
 
-  if [ "$elapsed" -lt "$BATTLE_INTERVAL" ]; then
-    local remaining=$(( (BATTLE_INTERVAL - elapsed) / 60 ))
-    echo "[battle] aguarda ~${remaining} min"
+  if [ -z "$slot" ]; then
+    local h m total next nh nm
+    printf -v h '%(%H)T' -1
+    printf -v m '%(%M)T' -1
+    h=$((10#$h)); m=$((10#$m))
+    total=$(( h * 60 + m ))
+    next=$(( (total / 40 + 1) * 40 ))
+    [ "$next" -ge 1440 ] && next=0
+    nh=$(( next / 60 ))
+    nm=$(( next % 60 ))
+    echo "[battle] fora de horario — proximo $(printf '%02d:%02d' "$nh" "$nm")"
     return 1
   fi
 
-  # Usa FUEL_CURRENT ja lido pelo go_hangar do start()
+  # Ja combateu neste slot
+  if [ "$LAST_BATTLE_SLOT" = "$slot" ]; then
+    echo "[battle] ja feito neste slot ($slot)"
+    return 1
+  fi
+
+  # Combustivel (lido pelo go_hangar do start)
   local fuel="${FUEL_CURRENT:-0}"
   if [ -z "$fuel" ] || [ "$fuel" -eq 0 ] 2>/dev/null; then
     echo "[battle] combustivel zero"
     return 1
   fi
   if [ "$fuel" -lt 90 ] 2>/dev/null; then
-    echo "[battle] combustivel insuficiente ($fuel)"
+    echo "[battle] combustivel insuficiente ($fuel/90) — slot $slot"
     return 1
   fi
 
-  echo "[battle] ok ($fuel)"
+  echo "[battle] ok — slot $slot | combustivel $fuel"
   return 0
 }
 
+# Escolta: SEM cooldown no bot.
+# A disponibilidade e decidida pelo HTML do jogo (findEnemy / startFight).
 _can_convoy() {
   [ "$FUNC_convoy" = "n" ] && return 1
-  local elapsed=$(( $(date +%s) - LAST_CONVOY_TS ))
-  if [ "$elapsed" -lt "$CONVOY_INTERVAL" ]; then
-    echo "[convoy] aguarda ~$(( (CONVOY_INTERVAL - elapsed) / 60 )) min"
-    return 1
-  fi
   return 0
 }
 
@@ -108,10 +141,10 @@ _check_battles() {
 }
 
 _maintenance() {
-  # 1. Batalha normal — prioridade maxima
+  # 1. Batalha normal — so nos horarios fixos
   if _can_battle; then
     adiante_a_combate
-    LAST_BATTLE_TS=$(date +%s)
+    LAST_BATTLE_SLOT=$(_battle_current_slot)
   fi
 
   # 2. Missoes
@@ -120,10 +153,9 @@ _maintenance() {
   # 3. Base
   [ "$FUNC_buildings" = "y" ] && buildings_func
 
-  # 4. Escolta
+  # 4. Escolta — tenta sempre; o jogo define se ha botao
   if _can_convoy; then
     convoy_mode
-    LAST_CONVOY_TS=$(date +%s)
   fi
 
   # 5. Divisao
@@ -134,14 +166,9 @@ _maintenance() {
 }
 
 start() {
-  # Vai ao hangar — mostra painel com todas as informacoes
   go_hangar
-
   _maintenance
-
-  # Painel actualizado apos manutencao
   go_hangar
-
   func_sleep
 }
 
@@ -156,11 +183,10 @@ _check_pvp_time() {
 wartank_play() {
   require_login || return
 
-  # Verifica batalhas activas (cw/dm/pve) — prioridade maxima
+  # CW / DM / PvE — prioridade maxima se ja activos
   _check_battles
   start
 
-  # PvP — sem prioridade, corre no final
-  # pvp.sh verifica o horario (05:23 / 11:23 / 21:23) internamente
+  # PvP — horarios internos (05:23 / 11:23 / 21:23)
   [ "$FUNC_pvp" = "y" ] && pvp_mode
 }
