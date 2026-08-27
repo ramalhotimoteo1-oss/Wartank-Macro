@@ -1,18 +1,22 @@
 #!/bin/bash
-# combat_common.sh — Funcoes partilhadas de combate v2.1.0
+# combat_common.sh — Funcoes partilhadas de combate v2.2.0
 #
-# ALTERACOES v2.1.0:
-#   + wait_battle_timer NAO bloqueia o bot em contagens longas
-#     So espera se faltarem <= COMBAT_WAIT_MAX segundos (default 120)
-#     Contagens maiores: log e sai — o run.sh volta a verificar no ciclo
-#   + Disparo continua com 6s fixos (tempo de recarga do jogo)
+# ALTERACOES v2.2.0:
+#   + Apos contagem: SEM hangar + sleep 10s (reduz atraso a entrar na guerra)
+#   + Poll mais frequente nos ultimos 60s (3–10s em vez de 25s)
+#   + COMBAT_WAIT_MAX default 105s (~1 min 45 s)
+#   + Disparo continua 6s (recarga do jogo)
+#
+# v2.1.0:
+#   + Timer longo nao bloqueia o ciclo do bot
 #
 # v2.0.0:
 #   + get_player_hp unificado (green1 | first | value-block)
 #   + combat_loop com repair/manobra
 
 # Segundos maximos a esperar num timer antes de desistir e voltar ao ciclo
-COMBAT_WAIT_MAX="${COMBAT_WAIT_MAX:-120}"
+# 105 ≈ 1 min 45 s — entra na espera perto do inicio da guerra
+COMBAT_WAIT_MAX="${COMBAT_WAIT_MAX:-105}"
 
 # ── get_player_hp — leitura unificada de HP do jogador ────────
 # Uso: get_player_hp MODE
@@ -78,8 +82,16 @@ wait_battle_timer() {
   echo "[${tag}] ${time_str} (${seconds_left}s) — a aguardar inicio"
 
   while [ "$seconds_left" -gt 0 ] 2>/dev/null; do
-    local wait_this=25
-    [ "$seconds_left" -le 30 ] && wait_this=$seconds_left
+    # Poll mais frequente perto do fim (menos atraso a entrar)
+    local wait_this=20
+    if [ "$seconds_left" -le 15 ]; then
+      wait_this=3
+    elif [ "$seconds_left" -le 30 ]; then
+      wait_this=5
+    elif [ "$seconds_left" -le 60 ]; then
+      wait_this=10
+    fi
+    [ "$wait_this" -gt "$seconds_left" ] && wait_this=$seconds_left
     [ "$wait_this" -lt 1 ] && wait_this=1
 
     sleep "${wait_this}s"
@@ -101,7 +113,6 @@ wait_battle_timer() {
     ss=$(echo "$time_str" | grep -o -E '[0-9]{2}:[0-9]{2}:[0-9]{2}' | cut -d: -f3)
     seconds_left=$(( 10#$hh * 3600 + 10#$mm * 60 + 10#$ss ))
 
-    # Se o timer voltou a ser longo (pagina mudou), sai
     if [ "$seconds_left" -gt "$COMBAT_WAIT_MAX" ] 2>/dev/null; then
       echo "[${tag}] timer voltou a ser longo — a sair"
       return 1
@@ -109,14 +120,20 @@ wait_battle_timer() {
     echo "[${tag}] ${seconds_left}s..."
   done
 
-  # Contagem zerou — hangar → 10s → preparacao (max 15s)
-  echo "[${tag}] contagem zerou — hangar → 10s → preparacao"
-  go_hangar
-  sleep 10s
+  # Contagem zerou — SEM hangar nem sleep 10s (era o atraso extra)
+  # Vai directo a pagina e poll rapido ate os controlos aparecerem
+  echo "[${tag}] contagem zerou — a entrar em combate"
+  fetch_page "$page"
+  if grep -q "$atk_grep" "$SRC" 2>/dev/null; then
+    echo "[${tag}] controles disponiveis — a combater"
+    $fight_func
+    return 0
+  fi
 
-  local prep=$(( $(date +%s) + 15 ))
-  echo "[${tag}] a aguardar preparacao (max 15s)..."
+  local prep=$(( $(date +%s) + 20 ))
+  echo "[${tag}] a aguardar preparacao (max 20s)..."
   while [ "$(date +%s)" -lt "$prep" ]; do
+    sleep 2s
     fetch_page "$page"
     if grep -q "$atk_grep" "$SRC" 2>/dev/null; then
       echo "[${tag}] controles disponiveis — a combater"
@@ -124,7 +141,6 @@ wait_battle_timer() {
       return 0
     fi
     echo "[${tag}] preparacao... $(( prep - $(date +%s) ))s"
-    sleep 3s
   done
 
   echo "[${tag}] timeout na preparacao"
