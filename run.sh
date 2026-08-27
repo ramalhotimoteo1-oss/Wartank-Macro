@@ -17,10 +17,18 @@ func_sleep() {
   local m
   printf -v m '%(%M)T' -1
   m=$((10#$m))
-  if [ "$m" -ge 48 ]; then
-    _idle_wait 20
-  elif [ "$m" -ge 13 ] && [ "$m" -le 22 ]; then
-    _idle_wait 20
+
+  # Ciclos curtos perto dos slots de battle (xx:00, xx:20, xx:40)
+  # Janela de 5 min antes de cada slot para nao perder
+  # xx:55-59 → slot xx:00
+  # xx:15-19 → slot xx:20
+  # xx:35-39 → slot xx:40
+  if [ "$m" -ge 55 ] || [ "$m" -le 2 ]; then
+    _idle_wait 15
+  elif [ "$m" -ge 15 ] && [ "$m" -le 22 ]; then
+    _idle_wait 15
+  elif [ "$m" -ge 35 ] && [ "$m" -le 42 ]; then
+    _idle_wait 15
   else
     _idle_wait 60
   fi
@@ -151,8 +159,8 @@ _maintenance() {
   [ "$FUNC_missions" = "y" ] && collect_all_rewards
 
   # 3. Base
-  [ "$FUNC_buildings" = "y" ] && base_mode
-  
+  [ "$FUNC_buildings" = "y" ] && buildings_func
+
   # 4. Escolta — tenta sempre; o jogo define se ha botao
   if _can_convoy; then
     convoy_mode
